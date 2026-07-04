@@ -123,10 +123,22 @@ class VoiceClient {
 
   private connect() {
     const base = process.env.NEXT_PUBLIC_GATEWAY_URL || "ws://localhost:8787";
+    const params = new URLSearchParams();
     // Pairs with the gateway's HVI_SHARED_SECRET (set both or neither).
     const token = process.env.NEXT_PUBLIC_GATEWAY_TOKEN;
-    const url = token ? `${base}?token=${encodeURIComponent(token)}` : base;
-    const ws = new WebSocket(url);
+    if (token) params.set("token", token);
+    // Named user: visit jarvo.pages.dev/?u=fernando once, the device
+    // remembers, and every session/note is attributed.
+    try {
+      const fromUrl = new URLSearchParams(location.search).get("u");
+      if (fromUrl) localStorage.setItem("hvi-user", fromUrl);
+      const user = localStorage.getItem("hvi-user");
+      if (user) params.set("u", user);
+    } catch {
+      /* privacy mode — stay anonymous */
+    }
+    const qs = params.toString();
+    const ws = new WebSocket(qs ? `${base}?${qs}` : base);
     ws.binaryType = "arraybuffer";
     this.ws = ws;
 

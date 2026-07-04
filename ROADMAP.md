@@ -456,6 +456,23 @@ CLOUD E2E: one utterance → property_lookup + owner_graph + assemblage_scan,
 Hernandez controls four parcels from one Lockwood mailbox" and pitched the
 Milbrad/Love 9-vs-8-unit packages. 1.1MB TTS.
 
+**✅ KV CACHE + LATENCY LOGS + NAMED USERS (2026-07-04, INTELLIGENCE-ROADMAP
+§5 #6):** `tools/kvcache.ts` — `kvCached(kind, rawKey, ttl, fn)` on the
+globalThis KV bridge (put now forwards expirationTtl); wired into HCAD
+queries (10-min TTL), FEMA zones (24h), city overlays (24h). Cache failures
+never fail the call; Node dev passes through (LRUs cover it). MEASURED in
+prod across two fresh connections: property_lookup 814ms cold → 4ms warm —
+the analyst inherits the scout's warm cache. Tool latency: executeTool wraps
+inner with `[tool] name Nms` logs — `wrangler tail hvi-gateway` is the
+latency dashboard (Analytics Engine needs paid plan; Sentry needs a DSN —
+**USER ACTION if wanted: create Sentry project + provide DSN**). Named
+users: `?u=fernando` on the WS URL → `SessionMemory.user`; web persists
+`jarvo.pages.dev/?u=fernando` → localStorage → every reconnect; wrap-up
+recap notes gain "logged by fernando via Jarvo"; `[session] user=` in logs
+(verified in tail). Claude system prompt deliberately NOT personalized
+(byte-stable for prompt caching). **USER ACTION: each teammate opens
+jarvo.pages.dev/?u=<name> once per device.**
+
 **✅ GROUND LAYER + "WHERE IS THIS?" (2026-07-04):** tools/ground.ts — USGS NHD
 flowlines (named bayous) + TxDOT Roadways (IH/US/SH) around the focus, decimated
 polylines → new GroundVisual wire kind → constellation renders them as faint

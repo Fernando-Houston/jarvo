@@ -4,6 +4,8 @@
 // areas (block small-lot subdivision), market-based parking (no minimums),
 // opportunity zones (tax incentive). One identify call checks them all.
 
+import { kvCached } from "./kvcache";
+
 const IDENTIFY_URL =
   "https://mycity2.houstontx.gov/pubgis02/rest/services/HoustonMap/Planning_and_Development/MapServer/identify";
 
@@ -20,6 +22,14 @@ const LAYERS: Record<number, { key: string; label: string }> = {
 export type OverlayHit = { key: string; label: string; name: string | null };
 
 export async function cityOverlaysAt(lat: number, lon: number): Promise<OverlayHit[]> {
+  // District boundaries move at city-council speed — a day of team-wide cache
+  // is safe. 5 decimal places ≈ 1m, plenty for point-in-polygon identity.
+  return kvCached("coh", `${lat.toFixed(5)},${lon.toFixed(5)}`, 86_400, () =>
+    cityOverlaysLive(lat, lon)
+  );
+}
+
+async function cityOverlaysLive(lat: number, lon: number): Promise<OverlayHit[]> {
   const params = new URLSearchParams({
     geometry: `${lon},${lat}`,
     geometryType: "esriGeometryPoint",

@@ -36,6 +36,8 @@ import {
 import type { ParcelVisual } from "@hvi/shared";
 
 export type SessionMemory = {
+  /** Named user (?u= on the WS URL) — attribution for notes and logs. */
+  user: string | null;
   /** HCAD account of the most recently discussed parcel ("this one"). */
   lastAccount: string | null;
   /** How many parcels the last address lookup matched (>3 = stacked condo —
@@ -402,7 +404,25 @@ export function emitDecorated(ctx: ToolContext, parcels: Parcel[], note?: string
   ctx.emitVisual(visual);
 }
 
+/** Thin timing wrapper — `wrangler tail` becomes the tool-latency dashboard
+ *  ("FEMA slow this week") until real analytics land. */
 export async function executeTool(
+  name: string,
+  input: Record<string, unknown>,
+  ctx: ToolContext
+): Promise<string> {
+  const t0 = Date.now();
+  try {
+    const out = await executeToolInner(name, input, ctx);
+    console.log(`[tool] ${name} ${Date.now() - t0}ms${out.startsWith('{"error"') ? " (error result)" : ""}`);
+    return out;
+  } catch (err) {
+    console.log(`[tool] ${name} ${Date.now() - t0}ms THREW ${err instanceof Error ? err.message : err}`);
+    throw err;
+  }
+}
+
+async function executeToolInner(
   name: string,
   input: Record<string, unknown>,
   ctx: ToolContext

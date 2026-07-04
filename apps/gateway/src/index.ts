@@ -16,16 +16,14 @@ const PORT = Number(process.env.GATEWAY_PORT || 8787);
 const wss = new WebSocketServer({ port: PORT });
 
 wss.on("connection", (ws, req) => {
+  const url = new URL(req.url ?? "/", "ws://localhost");
   // Shared-secret auth (team use behind HTTPS). Unset = open, for local dev.
   const secret = process.env.HVI_SHARED_SECRET;
-  if (secret) {
-    const url = new URL(req.url ?? "/", "ws://localhost");
-    if (url.searchParams.get("token") !== secret) {
-      ws.close(4401, "unauthorized");
-      return;
-    }
+  if (secret && url.searchParams.get("token") !== secret) {
+    ws.close(4401, "unauthorized");
+    return;
   }
-  const session = new Session(ws);
+  const session = new Session(ws, { user: url.searchParams.get("u") });
   ws.on("message", (data, isBinary) => {
     if (isBinary) session.handleAudio(data as Buffer);
     else session.handleText(data.toString());

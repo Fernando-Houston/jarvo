@@ -39,15 +39,17 @@ type Env = {
 
 /** Gateway code reads process.env (Node style); mirror the Worker env into
  *  it once per isolate. nodejs_compat provides the process global. The KV
- *  binding rides along on globalThis so gateway tools (digest) can reach it. */
+ *  binding rides along on globalThis so gateway tools (digest store, the
+ *  team-warm kvcache) can reach it; put() forwards TTL options. */
 function applyEnv(env: Env) {
   for (const [k, v] of Object.entries(env)) {
     if (typeof v === "string") process.env[k] = v;
   }
-  (globalThis as { __hviKv?: DigestStore }).__hviKv = {
-    get: (k) => env.HVI_KV.get(k),
-    put: (k, v) => env.HVI_KV.put(k, v),
+  const bridge = {
+    get: (k: string) => env.HVI_KV.get(k),
+    put: (k: string, v: string, opts?: { expirationTtl?: number }) => env.HVI_KV.put(k, v, opts),
   };
+  (globalThis as { __hviKv?: DigestStore }).__hviKv = bridge;
 }
 
 function vapidConfig(env: Env): VapidConfig | null {
@@ -293,11 +295,16 @@ export class HviSessionDO {
   // where outbound I/O (the Deepgram socket!) works — addEventListener
   // handlers inherit the long-dead upgrade request's context and die with
   // "Network connection lost".
+  /** Named user from the WS URL (?u=fernando), kept for reconnect-free reads
+   *  within this DO's lifetime. */
+  private user: string | null = null;
+
   async fetch(req: Request): Promise<Response> {
     applyEnv(this.env);
     if (req.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
       return new Response("expected websocket", { status: 426 });
     }
+    this.user = new URL(req.url).searchParams.get("u");
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
     this.state.acceptWebSocket(server);
@@ -318,7 +325,7 @@ export class HviSessionDO {
           }
         },
       };
-      this.session = new Session(wsLike);
+      this.session = new Session(wsLike, { user: this.user });
     }
     return this.session;
   }

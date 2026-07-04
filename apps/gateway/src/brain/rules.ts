@@ -389,6 +389,7 @@ export function createRulesBrain(): Brain {
           const ch42 = mem.ch42ByAccount.get(p.hcadAccount);
           if (ch42?.units) parts.push(`Ch.42 fit: ${ch42.units} units @ ${ch42.densityPerAcre}/acre`);
           if (p.absenteeOwner) parts.push("absentee owner");
+          if (mem.user) parts.push(`logged by ${mem.user} via Jarvo`);
           events.onTool("crm_add_note", "start");
           try {
             const res = JSON.parse(

@@ -2,6 +2,8 @@
 // Ported from land-lead-hub_FINAL/src/lib/parcelLookup.ts (the production
 // CRM's proven query patterns) and trimmed to what the voice pipeline needs.
 
+import { kvCached } from "./kvcache";
+
 const HCAD_PARCELS_URL =
   "https://www.gis.hctx.net/arcgis/rest/services/HCAD/Parcels/MapServer/0/query";
 
@@ -84,16 +86,19 @@ async function queryHcad(params: Record<string, string>): Promise<RawFeature[]> 
     queryCache.set(key, hit); // LRU bump
     return hit.feats;
   }
-  const res = await fetch(HCAD_PARCELS_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: body.toString(),
-    signal: AbortSignal.timeout(12_000),
+  // Isolate-local LRU missed — try the team-wide KV cache, then live HCAD.
+  const feats = await kvCached("hcad", key, 600, async () => {
+    const res = await fetch(HCAD_PARCELS_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+      signal: AbortSignal.timeout(12_000),
+    });
+    if (!res.ok) throw new Error(`HCAD query failed: HTTP ${res.status}`);
+    const json = (await res.json()) as { features?: RawFeature[]; error?: { message?: string } };
+    if (json.error) throw new Error(`HCAD query failed: ${json.error.message ?? "unknown"}`);
+    return json.features ?? [];
   });
-  if (!res.ok) throw new Error(`HCAD query failed: HTTP ${res.status}`);
-  const json = (await res.json()) as { features?: RawFeature[]; error?: { message?: string } };
-  if (json.error) throw new Error(`HCAD query failed: ${json.error.message ?? "unknown"}`);
-  const feats = json.features ?? [];
   queryCache.set(key, { at: Date.now(), feats });
   if (queryCache.size > CACHE_MAX) {
     queryCache.delete(queryCache.keys().next().value!);

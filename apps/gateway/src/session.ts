@@ -40,6 +40,7 @@ export class Session {
   private memory: SessionMemory = {
     lastAccount: null,
     lastMatches: 0,
+    user: null,
     knownParcels: new Map(),
     floodByAccount: new Map(),
     leadStatusByAccount: new Map(),
@@ -47,8 +48,13 @@ export class Session {
     compsMedianByAccount: new Map(),
   };
 
-  constructor(ws: WsLike) {
+  constructor(ws: WsLike, opts: { user?: string | null } = {}) {
     this.ws = ws;
+    if (opts.user) {
+      // Named session (?u=fernando): attribution for notes and logs.
+      this.memory.user = opts.user.slice(0, 40);
+      console.log(`[session] user=${this.memory.user}`);
+    }
     this.caps = {
       stt: deepgramAvailable() ? "deepgram" : "client",
       tts: elevenLabsAvailable() ? "elevenlabs" : "client",

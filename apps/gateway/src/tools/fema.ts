@@ -4,6 +4,8 @@
 // pipeline needs: the zone at a parcel's centroid, plus whether any part of
 // the parcel's footprint touches a Special Flood Hazard Area.
 
+import { kvCached } from "./kvcache";
+
 const NFHL_ZONES_URL =
   "https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer/28/query";
 
@@ -70,6 +72,11 @@ async function queryZones(extra: Record<string, string>): Promise<ZoneAttrs[]> {
     f: "json",
     ...extra,
   });
+  // Flood maps change on revision cycles, not hourly — cache a day team-wide.
+  return kvCached("fema", params.toString(), 86_400, () => queryZonesLive(params));
+}
+
+async function queryZonesLive(params: URLSearchParams): Promise<ZoneAttrs[]> {
   // FEMA's WAF drops anonymous datacenter traffic (breaks from Cloudflare
   // Workers) — a browser-like identity gets through.
   const res = await fetch(`${NFHL_ZONES_URL}?${params.toString()}`, {

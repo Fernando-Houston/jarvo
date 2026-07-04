@@ -314,6 +314,50 @@ export async function lookupByOwner(name: string, limit = 25): Promise<Parcel[]>
   return feats.map(parseFeature).filter((p): p is Parcel => p !== null);
 }
 
+/** Every parcel whose TAX MAIL goes to a given street address — the entity
+ *  resolver behind the LLC graph. Owner names lie (an LLC per deal); the
+ *  mailbox is where the portfolio clusters. */
+export async function lookupByMailAddress(
+  mailAddr: string,
+  mailZip?: string | null,
+  limit = 100
+): Promise<Parcel[]> {
+  const words = mailAddr
+    .toUpperCase()
+    .replace(/[^A-Z0-9 ]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    // Suffix words flap between records ("ST" vs "STREET" vs absent) — match
+    // on number + name words only.
+    .filter((w) => !SUFFIXES.has(w));
+  if (!words.length) return [];
+  const pattern = "%" + sqlEscape(words.join("%")) + "%";
+  const where: string[] = [`UPPER(mail_addr_1) LIKE '${pattern}'`];
+  if (mailZip) where.push(`mail_zip LIKE '${sqlEscape(mailZip.slice(0, 5))}%'`);
+  const feats = await queryHcad({ where: where.join(" AND "), resultRecordCount: String(limit) });
+  return feats.map(parseFeature).filter((p): p is Parcel => p !== null);
+}
+
+/** Everything around a subject parcel, no type filters — raw material for
+ *  adjacency/assemblage analysis. */
+export async function lookupNeighbors(
+  subject: Parcel,
+  radiusMeters = 300,
+  limit = 150
+): Promise<Parcel[]> {
+  const dLat = radiusMeters / 111320;
+  const dLon = radiusMeters / (111320 * Math.cos((subject.lat * Math.PI) / 180));
+  const feats = await queryHcad({
+    where: `HCAD_NUM<>'${sqlEscape(subject.hcadAccount)}'`,
+    geometry: `${subject.lon - dLon},${subject.lat - dLat},${subject.lon + dLon},${subject.lat + dLat}`,
+    geometryType: "esriGeometryEnvelope",
+    inSR: "4326",
+    spatialRel: "esriSpatialRelIntersects",
+    resultRecordCount: String(limit),
+  });
+  return feats.map(parseFeature).filter((p): p is Parcel => p !== null);
+}
+
 /** Similar parcels around a subject: same land-use code, lot size ±40%,
  *  within radiusMeters of the centroid. The raw material for a comps read. */
 export async function lookupComps(

@@ -408,6 +408,83 @@ export function createRulesBrain(): Brain {
         return;
       }
 
+      // ── LLC graph ("who REALLY owns this?") — mailbox beats owner name ──
+      if (/really own|actually own|same mailbox|shell (compan|game)|llc game|behind (the|this) llc|true (owner|portfolio)/i.test(userText)) {
+        if (!mem.lastAccount) {
+          say("Ask me about a property first, then I'll trace who's really behind it.");
+          return;
+        }
+        events.onTool("owner_graph", "start");
+        let g;
+        try {
+          g = JSON.parse(await executeTool("owner_graph", { hcad_account: mem.lastAccount }, ctx));
+        } catch {
+          events.onTool("owner_graph", "end");
+          say("Harris County records didn't answer just now — try that again in a moment.");
+          return;
+        }
+        events.onTool("owner_graph", "end");
+        if (g.error) {
+          say("I couldn't pin down that parcel to trace the owner.");
+          return;
+        }
+        if (g.parcel_count <= 1) {
+          say("As far as the mailbox trail shows, this is their only Harris County parcel.");
+          return;
+        }
+        const names = (g.distinct_owner_names as string[]).filter((n) => n !== "unknown");
+        say(
+          `The mailbox behind this one controls ${g.parcel_count} Harris County parcels` +
+            (names.length > 1 ? `, operating under ${names.length} different names — ${names.slice(0, 3).join(", ")}${names.length > 3 ? ", and more" : ""}` : "") +
+            `. Total appraised holdings run ${money(g.total_appraised)}. The biggest are lighting up your map.`
+        );
+        say("That's grouped by tax mailing address, which catches the LLC-per-deal game — and county records run a few months behind.");
+        return;
+      }
+
+      // ── Assemblage ("who's assembling?", "can these lots combine?") ──
+      if (/assembl|combin\w+ (the |these |two )?lots|package (the|these|it) (lots|parcels|deal)|accumulat/i.test(userText)) {
+        if (!mem.lastAccount) {
+          say("Ask me about a property first, then I'll scan the block for assemblage plays.");
+          return;
+        }
+        events.onTool("assemblage_scan", "start");
+        let a;
+        try {
+          a = JSON.parse(await executeTool("assemblage_scan", { hcad_account: mem.lastAccount }, ctx));
+        } catch {
+          events.onTool("assemblage_scan", "end");
+          say("Harris County records didn't answer just now — try the scan again in a moment.");
+          return;
+        }
+        events.onTool("assemblage_scan", "end");
+        if (a.error) {
+          say("I couldn't pin down that parcel to scan the block.");
+          return;
+        }
+        const prog = a.assemblages_in_progress as Array<{ operating_names: string[]; parcel_count: number; includes_subject: boolean; addresses: (string | null)[] }>;
+        const opps = a.assemblage_opportunities as Array<{ addresses: (string | null)[]; ch42_units_combined: number; ch42_units_separate: number; why_owners_look_tired: string[] }>;
+        if (!prog.length && !opps.length) {
+          say(`Scanned ${a.parcels_scanned} parcels around it — no multi-parcel mailboxes touching each other, and no tired-neighbor pairs that combine into a bigger Chapter 42 yield. Quiet block.`);
+          return;
+        }
+        for (const c of prog.slice(0, 2)) {
+          say(
+            `${c.includes_subject ? "This owner is already assembling here" : `Someone is assembling nearby`}: ${c.parcel_count} adjacent parcels controlled from one mailbox` +
+              (c.operating_names.length > 1 ? `, under names like ${c.operating_names.slice(0, 2).join(" and ")}` : "") +
+              "."
+          );
+        }
+        for (const o of opps.slice(0, 2)) {
+          const streets = o.addresses.map((x) => (x ?? "").split(",")[0]).filter(Boolean).join(" and ");
+          say(
+            `Opportunity: ${streets} sit side by side with different tired owners — together they'd carry ${o.ch42_units_combined} Chapter 42 units where separately they only pencil to ${o.ch42_units_separate}. That package doesn't exist until someone makes the calls.`
+          );
+        }
+        say("Adjacency and yields are county-data estimates — verify with a survey before anyone gets excited.");
+        return;
+      }
+
       // ── Owner portfolio ("what else do they own?") — nodes pop in as we speak ──
       if (/what else.*own|other (propert|parcel|holding)|owner('s)? (portfolio|holdings)|portfolio/i.test(userText)) {
         const p = mem.lastAccount ? mem.knownParcels.get(mem.lastAccount) : null;

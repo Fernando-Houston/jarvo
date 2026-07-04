@@ -433,6 +433,29 @@ chained lookup→check→radar, spotted the estate + tax suit combo AND that
 LGBS is an undocumented public API — if it changes shape, the tools degrade
 to spoken "couldn't reach the listings".
 
+**✅ LLC GRAPH + ASSEMBLAGE DETECTOR (2026-07-04, INTELLIGENCE-ROADMAP §5 #5):**
+`tools/entity.ts` + hcad.ts gains `lookupByMailAddress` (mailbox = entity
+resolver; suffix-insensitive LIKE + mail_zip) and `lookupNeighbors` (raw
+envelope sweep). `mailKey()` (number+name words, suffixes dropped, zip5),
+`parcelsAdjacent()` (vertex proximity ≤6m, 120m centroid gate),
+`tiredOwner()` (absentee OR 15+yr hold OR no transfer), `institutionalOwner`
+exclusion (city/county/church/school/MUD never sell), `clusterByMail`,
+`findOpportunities` (adjacent + different mailboxes + both tired + Ch42
+synergy: combined−separate ≥2, or ≥1 when combined ≤12 — the "clears the
+threshold together" case; +1 on a 35-unit site is rounding noise, filtered).
+Tools: `owner_graph(hcad_account)` (true portfolio: mail-cluster ∪ owner-name,
+distinct operating names, total holdings, biggest pop onto map) and
+`assemblage_scan(hcad_account, radius_m=300)` (in-progress clusters +
+opportunities, both painted). Rules triggers /really own|shell|llc/ and
+/assembl|combine lots|accumulat/. Honest notes everywhere: adjacency is
+geometric approximation, yields are the lot-size heuristic, HCAD lags.
+VERIFIED local: 1218 Yale → 1216 Yale mailbox controls both ($1.46M);
+Kirk St block → real 4-parcel accumulation + back-to-back absentee pairs.
+CLOUD E2E: one utterance → property_lookup + owner_graph + assemblage_scan,
+8 visuals; Claude separated "no portfolio behind THIS mailbox" from "Juana
+Hernandez controls four parcels from one Lockwood mailbox" and pitched the
+Milbrad/Love 9-vs-8-unit packages. 1.1MB TTS.
+
 **✅ GROUND LAYER + "WHERE IS THIS?" (2026-07-04):** tools/ground.ts — USGS NHD
 flowlines (named bayous) + TxDOT Roadways (IH/US/SH) around the focus, decimated
 polylines → new GroundVisual wire kind → constellation renders them as faint

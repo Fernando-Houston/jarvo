@@ -7,10 +7,13 @@ import {
   lookupByAddress,
   lookupByOwner,
   lookupByAccount,
+  lookupByMailAddress,
+  lookupNeighbors,
   lookupComps,
   lookupRecentTransfers,
   type Parcel,
 } from "./hcad";
+import { clusterByMail, findOpportunities, mailKey } from "./entity";
 import { floodCheckParcel, type FloodInfo } from "./fema";
 import { chapter42Feasibility, type Ch42Result, type StreetType } from "./chapter42";
 import { cityOverlaysAt } from "./cityOverlays";
@@ -163,6 +166,31 @@ export const toolSchemas = [
           description: `Statuses to include (default ["hot_lead","new"]). Valid: ${LEAD_STATUSES.join(", ")}`,
         },
       },
+    },
+  },
+  {
+    name: "owner_graph",
+    description:
+      "The TRUE portfolio behind a parcel (by 13-digit HCAD account): groups Harris County parcels by the owner's TAX MAILBOX, catching operators who use a different LLC per deal (owner-name search misses them). Returns every parcel controlled from the same mailing address, the distinct entity names in use, and total appraised holdings; parcels pop onto the map. Call when the user asks who REALLY owns something, about shell companies/LLCs, an operator's full portfolio, or what else is controlled from the same address.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        hcad_account: { type: "string", description: "13-digit HCAD account whose owner to resolve" },
+      },
+      required: ["hcad_account"],
+    },
+  },
+  {
+    name: "assemblage_scan",
+    description:
+      "Assemblage detector around a parcel (by 13-digit HCAD account). Finds (1) assemblages IN PROGRESS — adjacent parcels controlled from one mailbox, meaning someone is quietly building toward a project — and (2) assemblage OPPORTUNITIES — adjacent parcels with different tired owners (absentee or 15+ year holds) whose COMBINED lot clears a Chapter 42 unit count the separate lots can't. Call when the user asks about assemblage, combining lots, who's accumulating in an area, or packaging neighbors.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        hcad_account: { type: "string", description: "13-digit HCAD account of the subject parcel" },
+        radius_m: { type: "number", description: "Scan radius in meters (default 300)" },
+      },
+      required: ["hcad_account"],
     },
   },
   {
@@ -603,6 +631,117 @@ export async function executeTool(
           hcad_account: l.hcadAccount,
           created: l.createdAt?.slice(0, 10) ?? null,
         })),
+      });
+    }
+    case "owner_graph": {
+      const account = String(input.hcad_account ?? "");
+      const subject = await resolveParcel(ctx, account);
+      if (!subject) return JSON.stringify({ error: `No parcel found for HCAD ${account}` });
+      const mailStreet = subject.mailingAddress?.split(",")[0] ?? null;
+      const mailZip = subject.mailingAddress?.match(/\b(\d{5})(-\d{4})?\s*$/)?.[1] ?? null;
+      // Mailbox first (catches LLC-per-deal), owner name as a supplement.
+      let byMail: Parcel[] = [];
+      let byName: Parcel[] = [];
+      try {
+        if (mailStreet) byMail = await lookupByMailAddress(mailStreet, mailZip, 100);
+        if (subject.ownerName) byName = await lookupByOwner(subject.ownerName.split(";")[0].trim(), 25);
+      } catch (err) {
+        if (!byMail.length && !byName.length) {
+          return JSON.stringify({ error: err instanceof Error ? err.message : String(err) });
+        }
+      }
+      const portfolio = new Map<string, Parcel>();
+      for (const p of [...byMail, ...byName, subject]) portfolio.set(p.hcadAccount, p);
+      const parcels = [...portfolio.values()];
+      const names = [...new Set(parcels.map((p) => p.ownerName ?? "unknown"))];
+      const total = parcels.reduce((n, p) => n + (p.appraisedValue ?? 0), 0);
+      // Pop the biggest holdings onto the map, focus returns home.
+      const shown = parcels
+        .filter((p) => p.hcadAccount !== subject.hcadAccount)
+        .sort((a, b) => (b.appraisedValue ?? 0) - (a.appraisedValue ?? 0))
+        .slice(0, 5);
+      for (const p of shown) {
+        ctx.parcels.set(p.hcadAccount, p);
+        ctx.memory.knownParcels.set(p.hcadAccount, p);
+        emitDecorated(ctx, [p], "same mailbox");
+        await new Promise((r) => setTimeout(r, 600));
+      }
+      if (shown.length) emitDecorated(ctx, [subject]);
+      ctx.memory.lastAccount = subject.hcadAccount;
+      ctx.memory.lastMatches = 1;
+      return JSON.stringify({
+        subject_hcad: subject.hcadAccount,
+        control_mailbox: subject.mailingAddress,
+        parcel_count: parcels.length,
+        distinct_owner_names: names,
+        total_appraised: Math.round(total),
+        parcels: parcels.slice(0, 15).map((p) => ({
+          address: p.address,
+          owner: p.ownerName,
+          appraised_value: p.appraisedValue,
+          hcad_account: p.hcadAccount,
+        })),
+        note: "grouped by tax mailing address (catches LLC-per-deal operators) plus owner-name matches; HCAD roll lags the courthouse by weeks-to-months",
+      });
+    }
+    case "assemblage_scan": {
+      const account = String(input.hcad_account ?? "");
+      const subject = await resolveParcel(ctx, account);
+      if (!subject) return JSON.stringify({ error: `No parcel found for HCAD ${account}` });
+      const radius = typeof input.radius_m === "number" && input.radius_m > 0 ? Math.min(input.radius_m, 1000) : 300;
+      let neighbors: Parcel[];
+      try {
+        neighbors = await lookupNeighbors(subject, radius, 150);
+      } catch (err) {
+        return JSON.stringify({ error: err instanceof Error ? err.message : String(err) });
+      }
+      const candidates = [subject, ...neighbors];
+      const clusters = clusterByMail(candidates).filter((c) => c.hasAdjacentPair);
+      const opportunities = findOpportunities(candidates);
+      const subjectKey = mailKey(subject);
+
+      // Paint the strongest finding: the top in-progress cluster, then each
+      // opportunity pair, capped so the map stays legible.
+      let popped = 0;
+      const pop = async (p: Parcel, note: string) => {
+        if (popped >= 6) return;
+        ctx.parcels.set(p.hcadAccount, p);
+        ctx.memory.knownParcels.set(p.hcadAccount, p);
+        emitDecorated(ctx, [p], note);
+        popped++;
+        await new Promise((r) => setTimeout(r, 600));
+      };
+      if (clusters[0]) {
+        for (const p of clusters[0].parcels.slice(0, 4)) await pop(p, "assemblage: same mailbox");
+      }
+      for (const opp of opportunities.slice(0, 1)) {
+        for (const p of opp.parcels) await pop(p, "assemblage opportunity");
+      }
+      if (popped) emitDecorated(ctx, [subject]);
+      ctx.memory.lastAccount = subject.hcadAccount;
+      ctx.memory.lastMatches = 1;
+      return JSON.stringify({
+        subject_hcad: subject.hcadAccount,
+        radius_m: radius,
+        parcels_scanned: candidates.length,
+        assemblages_in_progress: clusters.slice(0, 4).map((c) => ({
+          control_mailbox: c.mailingAddress,
+          operating_names: c.ownerNames,
+          parcel_count: c.parcels.length,
+          includes_subject: subjectKey != null && c.mailKey === subjectKey,
+          total_appraised: Math.round(c.totalAppraised),
+          addresses: c.parcels.slice(0, 6).map((p) => p.address),
+        })),
+        assemblage_opportunities: opportunities.map((o) => ({
+          addresses: o.parcels.map((p) => p.address),
+          owners: o.parcels.map((p) => p.ownerName),
+          hcad_accounts: o.parcels.map((p) => p.hcadAccount),
+          combined_lot_sqft: o.combinedLotSqft,
+          ch42_units_combined: o.combinedUnits,
+          ch42_units_separate: o.separateUnits,
+          why_owners_look_tired: o.why,
+        })),
+        note: "adjacency approximated from HCAD parcel geometry; 'tired' = absentee mail or 15+ year hold; unit math is the lot-size heuristic, not a site plan; ownership data lags the courthouse",
       });
     }
     case "tax_sale_check": {

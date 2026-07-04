@@ -183,6 +183,32 @@ motivated-seller signals that exists, and only visible with snapshots.
 
 ---
 
+## 2.7 THE GARZA LAYER — expert knowledge capture (decided 2026-07-04)
+
+The human moat: a veteran's tacit knowledge, captured by voice, growing from
+zero. Architecture (NOT fine-tuning — retrieval with attribution):
+
+1. **Capture in-workflow:** passive ("want me to keep that as one of your
+   rules?") when Garza drops a heuristic during normal use + active "Garza
+   mode" where Jarvo interviews him Socratically about the parcel on screen.
+2. **Distill to atoms:** post-session, Claude extracts {claim, scope, type
+   (rule/red-flag/contact/war-story), date, source-session}; each read back
+   to Garza BY VOICE for confirmation before entering the base.
+3. **Store retrievable:** D1 + Vectorize; top-k atoms relevant to the
+   current parcel/question injected per turn. Grows unbounded, costs flat.
+4. **Attribution sacred:** always "Garza's rule here is…" — never blended
+   with county data; disagreements between Garza and data spoken out loud.
+5. **Contradiction flags** (new vs old atom → reconcile, never silent
+   overwrite) + **dated framing** for stale unreviewed rules.
+6. **Scoreboard:** log when atoms influence verdicts + deal outcomes → his
+   hit rate becomes measurable; his best rules become provable.
+
+Dangers avoided by this design: opinion/data blur (attribution), fossilized
+weights (no fine-tuning), unbounded prompts (retrieval), bad-take permanence
+(atoms are editable/deletable rows). Human note: position as legacy, get his
+buy-in explicitly. Build slot: alongside #7 (buy-box learning) — same
+retrieval infrastructure serves both.
+
 ## 3. Scaling a team — from tool to operating system
 
 The shift: individual Q&A → shared institutional memory + division of labor.

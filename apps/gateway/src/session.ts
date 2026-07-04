@@ -46,6 +46,8 @@ export class Session {
     leadStatusByAccount: new Map(),
     ch42ByAccount: new Map(),
     compsMedianByAccount: new Map(),
+    verdictByAccount: new Map(),
+    taxSaleByAccount: new Map(),
   };
 
   constructor(ws: WsLike, opts: { user?: string | null } = {}) {

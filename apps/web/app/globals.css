@@ -71,10 +71,43 @@ body {
 .card-close:hover { color: var(--fg); }
 .parcel-note { margin-top: 4px; font-size: 12px; color: var(--dim); font-style: italic; }
 .parcel-pipeline {
-  display: inline-block; margin-top: 6px; padding: 2px 8px;
+  display: inline-block; margin-top: 6px; margin-right: 6px; padding: 2px 8px;
   border: 1px solid rgba(46, 218, 117, 0.45); border-radius: 999px;
   font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
   color: var(--green); background: rgba(46, 218, 117, 0.1);
+}
+/* Kill-chain verdict chip — same shape as the pipeline badge, colored by the call. */
+.parcel-verdict {
+  display: inline-block; margin-top: 6px; margin-right: 6px; padding: 2px 8px;
+  border-radius: 999px; font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+}
+.verdict-green { border: 1px solid rgba(46, 218, 117, 0.55); color: var(--green); background: rgba(46, 218, 117, 0.12); }
+.verdict-yellow { border: 1px solid rgba(255, 214, 102, 0.55); color: #ffd666; background: rgba(255, 214, 102, 0.1); }
+.verdict-red { border: 1px solid rgba(255, 107, 94, 0.55); color: #ff6b5e; background: rgba(255, 107, 94, 0.1); }
+/* Delinquent-tax badge — the motivated-seller flag. */
+.parcel-distress {
+  display: inline-block; margin-top: 6px; padding: 2px 8px;
+  border: 1px solid rgba(255, 163, 102, 0.5); border-radius: 999px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+  color: #ffa366; background: rgba(255, 163, 102, 0.1);
+}
+/* Overnight digest banner — one quiet line under the top bar; tap to hear it. */
+.digest-banner {
+  position: absolute; top: 64px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px; max-width: min(92vw, 640px);
+  padding: 8px 14px; border-radius: 12px; cursor: pointer;
+  background: rgba(8, 18, 14, 0.78); border: 1px solid rgba(46, 218, 117, 0.25);
+  backdrop-filter: blur(14px); font-size: 13px; color: rgba(233, 246, 238, 0.92);
+  z-index: 5;
+}
+.digest-banner b { color: var(--green); font-weight: 600; white-space: nowrap; }
+.digest-close {
+  border: none; background: none; color: rgba(233, 246, 238, 0.5);
+  font-size: 15px; cursor: pointer; padding: 0 2px; line-height: 1;
+}
+.digest-close:hover { color: rgba(233, 246, 238, 0.9); }
+@media (max-width: 640px) {
+  .digest-banner { top: 58px; font-size: 12px; }
 }
 .parcel-rows { margin-top: 12px; display: flex; flex-direction: column; gap: 7px; }
 .row { display: flex; justify-content: space-between; font-size: 13px; gap: 12px; }

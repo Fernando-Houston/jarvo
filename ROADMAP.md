@@ -522,6 +522,27 @@ room DO + protocol + client merge — do it fresh); #9 flood-water ground
 render + barge-in (both need human eyes/ears to verify — pair with the
 next demo session).
 
+**✅ HUD POLISH FOR THE NEW INTELLIGENCE (2026-07-04):** the day's tools were
+spoken-only — now shown. (1) `ParcelVisual.verdict` → GREEN/YELLOW/RED chip
+on the parcel card (memory-cached in `verdictByAccount`, survives re-emits
+via emitDecorated; verdict tool repaints the focus when done). (2)
+`ParcelVisual.taxSale` → amber "TAX AUCTION <date>"/"TAX SUIT FILED" badge
+(cached in `taxSaleByAccount`; set by tax_sale_check re-emit AND per popped
+radar parcel). (3) Overnight digest banner: client fetches GET /digest on
+start; if <24h old and not yet dismissed (localStorage `hvi-digest-seen` =
+generatedAt), a quiet top-center line shows the headline — tap = asks Jarvo
+for the digest + dismisses, × = dismiss for the day. VERIFIED IN A REAL
+BROWSER (preview panel via the gotcha-#10 proxy, local web dev pointed at
+the PROD gateway): banner rendered with the live headline; tap sent the
+digest question and Jarvo spoke it; "Verdict on 1218 Yale" → red VERDICT ·
+RED chip (rgb 255,107,94); "is 3106 Kirk behind on taxes" → TAX SUIT FILED
+badge on the card; zero console errors; screenshot taken. Deployed to
+jarvo.pages.dev (new CSS classes confirmed in the served bundle). Still
+parked for eyeballs-in-the-room sessions: distress-red satellite tint,
+mailbox-cluster link lines, verdict-colored orb glow, flood-water render.
+Note: GET /digest is unauthenticated while HVI_SHARED_SECRET is unset; when
+the secret lands, the banner fetch needs the token appended.
+
 **✅ GROUND LAYER + "WHERE IS THIS?" (2026-07-04):** tools/ground.ts — USGS NHD
 flowlines (named bayous) + TxDOT Roadways (IH/US/SH) around the focus, decimated
 polylines → new GroundVisual wire kind → constellation renders them as faint

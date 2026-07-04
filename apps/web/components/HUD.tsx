@@ -17,7 +17,7 @@ function money(n: number | null): string {
 export default function HUD() {
   const {
     connected, caps, orbState, transcript, caption, visual, chips, micArmed, freeCam, error,
-    turns, showTranscript, toggleTranscript, activity,
+    turns, showTranscript, toggleTranscript, activity, digest, dismissDigest,
   } = useHvi();
   const [typed, setTyped] = useState("");
   const railRef = useRef<HTMLElement>(null);
@@ -83,6 +83,31 @@ export default function HUD() {
         </div>
       </header>
 
+      {/* Overnight digest banner — tap to hear it, × to dismiss for the day */}
+      {digest && (
+        <div
+          className="digest-banner"
+          onClick={() => {
+            dismissDigest();
+            voice.sendText("Give me the overnight digest.");
+          }}
+          title="Tap to hear the full digest"
+        >
+          <b>Overnight</b>
+          <span>{digest.headline}</span>
+          <button
+            className="digest-close"
+            onClick={(e) => {
+              e.stopPropagation();
+              dismissDigest();
+            }}
+            title="Dismiss for today"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {/* Transcript rail — the conversation so far, down the left edge */}
       {showTranscript && turns.length > 0 && (
         <aside className="transcript-rail" ref={railRef}>
@@ -102,9 +127,19 @@ export default function HUD() {
             ×
           </button>
           <div className="parcel-address">{visual.address ?? "Harris County parcel"}</div>
+          {visual.verdict && (
+            <div className={`parcel-verdict verdict-${visual.verdict.toLowerCase()}`}>
+              VERDICT · {visual.verdict}
+            </div>
+          )}
           {visual.leadStatus && (
             <div className="parcel-pipeline">
               IN PIPELINE · {visual.leadStatus.replace(/_/g, " ").toUpperCase()}
+            </div>
+          )}
+          {visual.taxSale && (
+            <div className="parcel-distress">
+              TAX {visual.taxSale.saleDate ? `AUCTION ${visual.taxSale.saleDate}` : "SUIT FILED"}
             </div>
           )}
           {visual.note && <div className="parcel-note">{visual.note}</div>}

@@ -47,6 +47,8 @@ type HviStore = {
   showTranscript: boolean;
   /** What HVI is doing right now ("checking FEMA flood maps…"), or null. */
   activity: string | null;
+  /** Overnight digest headline, shown once per day until dismissed. */
+  digest: { headline: string; generatedAt: string } | null;
 
   setConnected: (v: boolean) => void;
   setCaps: (c: Capabilities) => void;
@@ -65,6 +67,8 @@ type HviStore = {
   appendTurnText: (t: string) => void;
   toggleTranscript: () => void;
   setActivity: (a: string | null) => void;
+  setDigest: (d: { headline: string; generatedAt: string } | null) => void;
+  dismissDigest: () => void;
 };
 
 export const useHvi = create<HviStore>((set) => ({
@@ -84,6 +88,7 @@ export const useHvi = create<HviStore>((set) => ({
   turns: [],
   showTranscript: false,
   activity: null,
+  digest: null,
 
   setConnected: (connected) => set({ connected }),
   setCaps: (caps) => set({ caps }),
@@ -113,6 +118,17 @@ export const useHvi = create<HviStore>((set) => ({
     }),
   toggleTranscript: () => set((s) => ({ showTranscript: !s.showTranscript })),
   setActivity: (activity) => set({ activity }),
+  setDigest: (digest) => set({ digest }),
+  dismissDigest: () =>
+    set((s) => {
+      // Remember per digest-generation so it stays gone for the day.
+      try {
+        if (s.digest) localStorage.setItem("hvi-digest-seen", s.digest.generatedAt);
+      } catch {
+        /* private mode — dismissal lasts the tab's life via state */
+      }
+      return { digest: null };
+    }),
 }));
 
 /** Load persisted turns after hydration (call from a useEffect). */

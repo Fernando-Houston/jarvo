@@ -95,6 +95,27 @@ class VoiceClient {
     this.connect();
     this.levelLoop();
     this.restoreSavedMap();
+    void this.loadDigestBanner();
+  }
+
+  /** Morning ritual: if a fresh overnight digest exists and hasn't been
+   *  dismissed today, surface its headline as a banner. Best-effort — a
+   *  miss just means no banner. */
+  private async loadDigestBanner() {
+    try {
+      const base = (process.env.NEXT_PUBLIC_GATEWAY_URL || "ws://localhost:8787")
+        .replace(/^ws/, "http")
+        .replace(/\/+$/, "");
+      const res = await fetch(`${base}/digest`);
+      if (!res.ok) return;
+      const d = (await res.json()) as { headline?: string; generatedAt?: string };
+      if (!d.headline || !d.generatedAt) return;
+      if (Date.now() - new Date(d.generatedAt).getTime() > 24 * 3600_000) return; // stale
+      if (localStorage.getItem("hvi-digest-seen") === d.generatedAt) return; // already read
+      useHvi.getState().setDigest({ headline: d.headline, generatedAt: d.generatedAt });
+    } catch {
+      /* offline or gateway missing the route — no banner */
+    }
   }
 
   /** Bring back the constellation from the last session, if any. */

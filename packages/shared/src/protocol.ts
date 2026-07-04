@@ -37,6 +37,10 @@ export type ParcelVisual = {
   floodLabel?: string;
   /** CRM pipeline status (e.g. "hot_lead") when this parcel is already a lead. */
   leadStatus?: string | null;
+  /** Kill-chain screening result, set after the verdict tool runs. */
+  verdict?: "GREEN" | "YELLOW" | "RED" | null;
+  /** Delinquent-tax legal pipeline state, set after a tax-sale check/radar. */
+  taxSale?: { status: string; saleDate: string | null } | null;
   /** Chapter 42 feasibility, set after chapter42_feasibility runs: the orb
    *  assembles the building rectangles onto the lot. */
   ch42?: {

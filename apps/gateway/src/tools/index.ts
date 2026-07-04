@@ -53,6 +53,10 @@ export type SessionMemory = {
   ch42ByAccount: Map<string, Ch42Result>;
   /** Median land $/sqft from comps runs, for session wrap-up notes. */
   compsMedianByAccount: Map<string, number>;
+  /** Kill-chain verdicts this session (drives the card chip on re-emits). */
+  verdictByAccount: Map<string, "GREEN" | "YELLOW" | "RED">;
+  /** Tax-sale pipeline state this session (drives the card's distress row). */
+  taxSaleByAccount: Map<string, { status: string; saleDate: string | null }>;
 };
 
 export type ToolContext = {
@@ -388,6 +392,10 @@ export function emitDecorated(ctx: ToolContext, parcels: Parcel[], note?: string
   }
   const leadStatus = ctx.memory.leadStatusByAccount.get(visual.hcadAccount);
   if (leadStatus) visual.leadStatus = leadStatus;
+  const verdict = ctx.memory.verdictByAccount.get(visual.hcadAccount);
+  if (verdict) visual.verdict = verdict;
+  const taxSale = ctx.memory.taxSaleByAccount.get(visual.hcadAccount);
+  if (taxSale) visual.taxSale = taxSale;
   const ch42 = ctx.memory.ch42ByAccount.get(visual.hcadAccount);
   if (ch42) {
     visual.ch42 = {
@@ -779,6 +787,10 @@ async function executeToolInner(
           note: TAX_SALE_SOURCE_NOTE,
         });
       }
+      // Badge the on-screen parcel with its distress state.
+      ctx.memory.taxSaleByAccount.set(account, { status: rec.status, saleDate: rec.saleDate });
+      const checked = await resolveParcel(ctx, account);
+      if (checked) emitDecorated(ctx, [checked]);
       return JSON.stringify({
         hcad_account: account,
         in_tax_sale_pipeline: true,
@@ -811,6 +823,7 @@ async function executeToolInner(
           if (!parcel) continue;
           ctx.parcels.set(parcel.hcadAccount, parcel);
           ctx.memory.knownParcels.set(parcel.hcadAccount, parcel);
+          ctx.memory.taxSaleByAccount.set(parcel.hcadAccount, { status: rec.status, saleDate: rec.saleDate });
           emitDecorated(ctx, [parcel], rec.saleDate ? `tax auction ${rec.saleDate}` : "tax suit filed");
           popped++;
           await new Promise((r) => setTimeout(r, 600));
@@ -861,6 +874,9 @@ async function executeToolInner(
       const result = composeVerdict({ parcel, overlays, flood, ch42, comps, taxSale });
       ctx.memory.lastAccount = parcel.hcadAccount;
       ctx.memory.lastMatches = 1;
+      // Final repaint so the card carries the GREEN/YELLOW/RED chip.
+      ctx.memory.verdictByAccount.set(parcel.hcadAccount, result.verdict);
+      emitDecorated(ctx, [parcel]);
       return JSON.stringify(result);
     }
     case "nightly_digest": {

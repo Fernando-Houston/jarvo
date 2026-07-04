@@ -10,6 +10,7 @@
 import { Session, type WsLike } from "../../gateway/src/session";
 import { runNightlyDigest, getLatestDigest, type DigestStore } from "../../gateway/src/tools/digest";
 import { listLeads, LEAD_STATUSES } from "../../gateway/src/tools/crm";
+import { distillBuyBox, getBuyBox } from "../../gateway/src/brain/buybox";
 import { sendPush, type PushSubscription, type VapidConfig } from "./webpush";
 import {
   kvSnapshotStore,
@@ -187,6 +188,21 @@ export default {
       const { digest, delivery } = await runDigestAndPush(env);
       return json({ digest, delivery });
     }
+    if (url.pathname === "/buybox") {
+      if (!authorized) return json({ error: "unauthorized" }, 401);
+      applyEnv(env);
+      return json((await getBuyBox()) ?? { error: "no buy-box yet" });
+    }
+    if (url.pathname === "/buybox/run" && req.method === "POST") {
+      if (!authorized) return json({ error: "unauthorized" }, 401);
+      applyEnv(env);
+      try {
+        const bb = await distillBuyBox();
+        return json(bb, "skipped" in bb ? 503 : 200);
+      } catch (err) {
+        return json({ error: err instanceof Error ? err.message : String(err) }, 500);
+      }
+    }
     if (url.pathname === "/snapshot/run" && req.method === "POST") {
       if (!authorized) return json({ error: "unauthorized" }, 401);
       return env.SNAPSHOT.get(env.SNAPSHOT.idFromName("global")).fetch(
@@ -220,6 +236,19 @@ export default {
     }
     ctx.waitUntil(
       runDigestAndPush(env).catch((err) => console.error("[digest] nightly run failed:", err))
+    );
+    // The buy-box re-distills on the same nightly beat — yesterday's saves,
+    // passes, and notes become tomorrow morning's pre-sorting instinct.
+    ctx.waitUntil(
+      distillBuyBox()
+        .then((bb) =>
+          console.log(
+            "skipped" in bb
+              ? `[buybox] skipped: ${bb.skipped}`
+              : `[buybox] updated (${bb.evidence.leads} leads, ${bb.evidence.notes} notes, ${bb.evidence.closedPrices} closed prices)`
+          )
+        )
+        .catch((err) => console.error("[buybox] distill failed:", err))
     );
   },
 };

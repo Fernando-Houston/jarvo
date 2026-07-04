@@ -4,6 +4,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { executeTool, toolSchemas, type ToolContext } from "../tools/index";
+import { getBuyBox } from "./buybox";
 import type { Brain, BrainEvents } from "./types";
 
 const MODEL = "claude-opus-4-8";
@@ -55,10 +56,28 @@ export function makeSentenceChunker(onSentence: (s: string) => void) {
 export function createClaudeBrain(): Brain {
   const client = new Anthropic();
   const history: Anthropic.MessageParam[] = [];
+  // The team's distilled buy-box rides as a SECOND system block, after the
+  // cache-controlled one — the cached prefix stays intact, and this block
+  // only changes when the nightly distiller rewrites it. Loaded once per
+  // session; a load failure just means no buy-box this session.
+  let buyBoxBlock: string | null = null;
+  let buyBoxLoaded = false;
 
   return {
     name: "claude",
     async run(userText: string, events: BrainEvents, ctx: ToolContext, signal: AbortSignal) {
+      if (!buyBoxLoaded) {
+        buyBoxLoaded = true;
+        try {
+          const bb = await getBuyBox();
+          if (bb) {
+            buyBoxBlock =
+              `Team buy-box, distilled ${bb.updatedAt.slice(0, 10)} from the team's own pipeline decisions (${bb.evidence.leads} leads, ${bb.evidence.notes} notes). Use it to pre-sort and frame recommendations, attributing it as "your pipeline history" — never present it as market data, and let the user's explicit asks override it: ${bb.paragraph}`;
+          }
+        } catch {
+          /* no buy-box this session */
+        }
+      }
       history.push({ role: "user", content: userText });
       // Keep the conversation bounded (voice sessions are short-turn).
       while (history.length > 24) history.shift();
@@ -73,7 +92,10 @@ export function createClaudeBrain(): Brain {
           {
             model: MODEL,
             max_tokens: 1200,
-            system: [{ type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }],
+            system: [
+              { type: "text" as const, text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" as const } },
+              ...(buyBoxBlock ? [{ type: "text" as const, text: buyBoxBlock }] : []),
+            ],
             thinking: { type: "adaptive" },
             output_config: { effort: "low" },
             tools: toolSchemas,

@@ -273,7 +273,7 @@ The shift: individual Q&A → shared institutional memory + division of labor.
 | 4 | ✅ Tax delinquency connect (2026-07-04 via LGBS tax-sale API, see ROADMAP.md) | Best motivated-seller signal available today |
 | 5 | ✅ LLC graph + assemblage detector (2026-07-04, see ROADMAP.md) | Deals that don't exist without Jarvo |
 | 6 | ✅ KV cache + latency logs + named users (2026-07-04; Sentry needs a DSN from you) | Team-scale hygiene |
-| 7 | Buy-box learning + closed-price calibration | The unreplicatable moat |
+| 7 | ✅ Buy-box learning + closed-price hooks (2026-07-04; calibration fills as the team dictates closes) | The unreplicatable moat |
 | 8 | Multiplayer constellation | The shared war room |
 | 9 | Flood water render + barge-in + persona pass | Polish that sells |
 

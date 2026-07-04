@@ -473,6 +473,26 @@ recap notes gain "logged by fernando via Jarvo"; `[session] user=` in logs
 (byte-stable for prompt caching). **USER ACTION: each teammate opens
 jarvo.pages.dev/?u=<name> once per device.**
 
+**✅ BUY-BOX LEARNING (2026-07-04, INTELLIGENCE-ROADMAP §5 #7):**
+`brain/buybox.ts` + crm.ts `listLeadsForBuyBox`/`listRecentNotes` (nested
+lead join works under RLS). Nightly (same cron beat as the digest):
+evidence pack (120 leads: status|address|$-per-sf|lot; 80 notes verbatim) →
+Haiku (`claude-haiku-4-5`) distills ONE ≤120-word speakable paragraph →
+KV `buybox:v1`. Closed-price calibration seed: `parseClosedPrice()` regex
+("closed at 315" → $315k) extracts from notes into KV `calib:v1` (0 entries
+today — becomes real when the team dictates closes). Claude brain injects
+the buy-box as a SECOND system block AFTER the cache_control block (cached
+prefix intact; prompt shifts at most nightly), framed as "your pipeline
+history", never market data, user overrides win. Skips are diagnosable
+(`{skipped: reason}`); routes GET `/buybox`, POST `/buybox/run`. VERIFIED
+prod: distilled a real pattern (Third Ward/77004 corridor, 30–50 $/sf,
+named streets) and CLOUD E2E "does 3414 Milbrad fit what we usually go
+after?" → "lot size is right in your wheelhouse… but outside your core
+Third Ward corridor… scattered-lot category you only chase selectively."
+Jarvo now pre-sorts like a partner. NOTE: first prod distill returned a
+transient null (suspected stale supabase sign-in state in a long-lived
+isolate) — succeeded on retry; reasons now logged.
+
 **✅ GROUND LAYER + "WHERE IS THIS?" (2026-07-04):** tools/ground.ts — USGS NHD
 flowlines (named bayous) + TxDOT Roadways (IH/US/SH) around the focus, decimated
 polylines → new GroundVisual wire kind → constellation renders them as faint

@@ -115,6 +115,54 @@ export async function listLeads(
   }));
 }
 
+/** Decision evidence for the buy-box distiller: every lead's status + the
+ *  numbers that shaped the call. */
+export async function listLeadsForBuyBox(limit = 120): Promise<
+  Array<{ status: string | null; address: string | null; appraisedValue: number | null; lotSqft: number | null; createdAt: string | null }>
+> {
+  const db = await getClient();
+  if (!db) return [];
+  const { data, error } = await db
+    .from("leads")
+    .select("status,property_address,hcad_appraisal_value,lot_sqft,created_at")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(`CRM buy-box read failed: ${error.message}`);
+  return (data ?? []).map((d) => ({
+    status: d.status,
+    address: d.property_address,
+    appraisedValue: d.hcad_appraisal_value,
+    lotSqft: d.lot_sqft,
+    createdAt: d.created_at,
+  }));
+}
+
+/** Recent dictated/typed notes — where the team's reasoning (and closed
+ *  prices) actually live. */
+export async function listRecentNotes(limit = 80): Promise<
+  Array<{ body: string; createdAt: string | null; leadAddress: string | null; leadStatus: string | null }>
+> {
+  const db = await getClient();
+  if (!db) return [];
+  const { data, error } = await db
+    .from("lead_notes")
+    .select("body,created_at,leads(property_address,status)")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(`CRM notes read failed: ${error.message}`);
+  return (data ?? []).map((d) => {
+    const lead = (Array.isArray(d.leads) ? d.leads[0] : d.leads) as
+      | { property_address: string | null; status: string | null }
+      | null;
+    return {
+      body: d.body as string,
+      createdAt: d.created_at as string | null,
+      leadAddress: lead?.property_address ?? null,
+      leadStatus: lead?.status ?? null,
+    };
+  });
+}
+
 // ── Writes (RLS: team members can insert/update; deletes stay admin-only) ──
 
 /** Valid lead statuses (from the CRM's lead_status enum). */

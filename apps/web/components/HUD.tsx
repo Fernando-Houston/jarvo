@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { useHvi, hydrateTurns } from "@/lib/store";
 import { voice } from "@/lib/voice";
 import { orbBus } from "@/lib/orbBus";
+import { pushSupported, pushEnabled, enablePush, disablePush } from "@/lib/push";
 
 function money(n: number | null): string {
   if (n == null) return "—";
@@ -20,8 +21,33 @@ export default function HUD() {
   } = useHvi();
   const [typed, setTyped] = useState("");
   const railRef = useRef<HTMLElement>(null);
+  // null = unsupported/undetermined (button hidden), otherwise current state.
+  const [alerts, setAlerts] = useState<boolean | null>(null);
+  const [alertsBusy, setAlertsBusy] = useState(false);
 
   useEffect(() => hydrateTurns(), []);
+
+  useEffect(() => {
+    if (!pushSupported()) return;
+    void pushEnabled().then(setAlerts);
+  }, []);
+
+  const toggleAlerts = async () => {
+    if (alertsBusy || alerts == null) return;
+    setAlertsBusy(true);
+    try {
+      if (alerts) {
+        await disablePush();
+        setAlerts(false);
+      } else {
+        const err = await enablePush();
+        if (err) useHvi.getState().setError(err);
+        else setAlerts(true);
+      }
+    } finally {
+      setAlertsBusy(false);
+    }
+  };
 
   // Keep the transcript rail pinned to the newest turn.
   useEffect(() => {
@@ -168,6 +194,15 @@ export default function HUD() {
           {chips.length > 0 && (
             <button className="clear" onClick={() => voice.clearMap()} title="Dissolve the map back into the voice">
               clear map
+            </button>
+          )}
+          {alerts != null && (
+            <button
+              className={`clear ${alerts ? "active" : ""}`}
+              onClick={() => void toggleAlerts()}
+              title={alerts ? "Nightly digest notifications are on" : "Get the nightly digest as a notification"}
+            >
+              {alertsBusy ? "…" : alerts ? "alerts on" : "alerts"}
             </button>
           )}
           {freeCam && (

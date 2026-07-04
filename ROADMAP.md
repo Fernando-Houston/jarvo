@@ -349,6 +349,31 @@ citing Certificate of Appropriateness. FEMA cloud fix (UA header) also ✅.
 Parked from this sweep: homestead flag (not in HCAD parcels layer — needs
 different dataset), tax delinquency, permits, Ch42 urban/suburban boundary.
 
+**✅ NIGHTLY DIGEST CRON + WEB PUSH (2026-07-04, INTELLIGENCE-ROADMAP §5 #1):**
+The pull→push flip. `tools/digest.ts`: nightly sweep of the pipeline's
+hot/new/revisit leads (cap 6 areas) → `lookupRecentTransfers` around each →
+diffed against a KV-stored seen-baseline (`digest:seen:v1`, key =
+account:recorded-date, so "fresh" = fresh TO US; first run seeds and reports
+newest-per-area only). Digest stored at `digest:latest:v1`; NO CRM writes
+(keeps real leads untouched). Worker: cron `0 12 * * *` (7am CDT) →
+`runDigestAndPush`; Web Push implemented dep-free in `apps/worker/src/
+webpush.ts` (VAPID ES256 JWT + RFC 8291 aes128gcm on WebCrypto); routes
+`/push/vapid|subscribe|unsubscribe`, `/digest` (GET stored), `/digest/run`
+(POST manual). KV namespace `HVI_KV` (993da56e…) bound; VAPID private key +
+subject in wrangler secrets, public key in [vars]. Voice: `nightly_digest`
+tool (+ rules trigger /digest|overnight|what's new/) reads the stored run or
+sweeps live. Web: `sw.js` + `lib/push.ts` + "alerts" HUD button; PWA
+manifest + orb icon added (iOS push needs home-screen install). Worker now
+typechecks (`tsconfig.json` + workers-types were missing). VERIFIED: local
+digest run (4 fresh deeds, 6 areas, dedup on 2nd run) · prod `/digest/run`
++ KV persistence across isolates · WS E2E on the cloud gateway ("what's new
+overnight?" → Claude called nightly_digest → honest quiet-night answer +
+250KB TTS) · subscribe/unsubscribe roundtrip · manifest live.
+**USER ACTION: on each phone, open jarvo.pages.dev (iPhone: add to Home
+Screen first), tap "alerts", allow notifications — then the 7am digest
+lands as a push.** Proper PNG icons still open. Push delivery to a real
+device untested until someone subscribes.
+
 **✅ GROUND LAYER + "WHERE IS THIS?" (2026-07-04):** tools/ground.ts — USGS NHD
 flowlines (named bayous) + TxDOT Roadways (IH/US/SH) around the focus, decimated
 polylines → new GroundVisual wire kind → constellation renders them as faint

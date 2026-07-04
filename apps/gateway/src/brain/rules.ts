@@ -269,6 +269,25 @@ export function createRulesBrain(): Brain {
         return;
       }
 
+      // ── Overnight digest ("what's new?", "anything overnight?") ──
+      if (/\bdigest\b|overnight|what('s| is| has)? ?new\b|anything new|since yesterday|last night/i.test(userText)) {
+        events.onTool("nightly_digest", "start");
+        try {
+          const d = JSON.parse(await executeTool("nightly_digest", {}, ctx));
+          events.onTool("nightly_digest", "end");
+          if (d.error) {
+            say("The digest didn't come back just now — try again in a moment.");
+          } else {
+            if (d.swept_just_now) say("No stored digest yet, so I swept just now.");
+            for (const b of d.bullets as string[]) say(b);
+          }
+        } catch {
+          events.onTool("nightly_digest", "end");
+          say("The digest didn't come back just now — try again in a moment.");
+        }
+        return;
+      }
+
       // ── Morning briefing ("good morning", "brief my pipeline") ──
       if (/good morning|morning briefing|\bbriefing\b|my (hot )?leads|pipeline (review|check|status)/i.test(userText)) {
         events.onTool("pipeline_briefing", "start");

@@ -1,0 +1,12 @@
+{
+  "name": "Jarvo — Houston Voice Intelligence",
+  "short_name": "Jarvo",
+  "description": "Voice-first AI for Houston real estate, grounded in live Harris County records.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#04080a",
+  "theme_color": "#04080a",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

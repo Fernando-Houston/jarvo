@@ -15,6 +15,7 @@ import { floodCheckParcel, type FloodInfo } from "./fema";
 import { chapter42Feasibility, type Ch42Result, type StreetType } from "./chapter42";
 import { cityOverlaysAt } from "./cityOverlays";
 import { groundAround } from "./ground";
+import { getLatestDigest, runNightlyDigest } from "./digest";
 import type { CompsVisual, GroundVisual } from "@hvi/shared";
 import {
   checkLead,
@@ -158,6 +159,20 @@ export const toolSchemas = [
           type: "array",
           items: { type: "string" },
           description: `Statuses to include (default ["hot_lead","new"]). Valid: ${LEAD_STATUSES.join(", ")}`,
+        },
+      },
+    },
+  },
+  {
+    name: "nightly_digest",
+    description:
+      "The overnight digest: fresh deed recordings HCAD picked up near the team's pipeline leads plus pipeline changes, swept nightly by cron. Call when the user asks what's new, what happened overnight, for the digest, or anything-new-since-yesterday. Returns the stored nightly run (or sweeps live if none exists yet). Deed dates are HCAD recordings that trail the courthouse by weeks to months — keep that caveat when speaking.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        refresh: {
+          type: "boolean",
+          description: "Force a fresh sweep now instead of reading the stored nightly run",
         },
       },
     },
@@ -550,6 +565,25 @@ export async function executeTool(
           created: l.createdAt?.slice(0, 10) ?? null,
         })),
       });
+    }
+    case "nightly_digest": {
+      try {
+        let digest = input.refresh ? null : await getLatestDigest();
+        let freshlyRun = false;
+        if (!digest) {
+          digest = await runNightlyDigest();
+          freshlyRun = true;
+        }
+        return JSON.stringify({
+          generated_at: digest.generatedAt,
+          swept_just_now: freshlyRun,
+          bullets: digest.bullets,
+          stats: digest.stats,
+          note: "deed dates are HCAD recordings, weeks-to-months behind the courthouse",
+        });
+      } catch (err) {
+        return JSON.stringify({ error: err instanceof Error ? err.message : String(err) });
+      }
     }
     case "city_overlays": {
       const account = String(input.hcad_account ?? "");

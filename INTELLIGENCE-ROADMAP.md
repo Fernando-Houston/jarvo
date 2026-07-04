@@ -267,7 +267,7 @@ The shift: individual Q&A → shared institutional memory + division of labor.
 
 | # | Build | Why first |
 |---|---|---|
-| 1 | Nightly digest cron + push notifications | Flips pull→push; creates the daily ritual |
+| 1 | ✅ Nightly digest cron + push notifications (2026-07-04, see ROADMAP.md) | Flips pull→push; creates the daily ritual |
 | 2 | Time Machine snapshots (R2 cron) | Compounds from day one; every month waited is moat lost |
 | 3 | Verdict tool ("should we pursue?") | Collapses the platform into one magic sentence |
 | 4 | Tax delinquency connect | Best motivated-seller signal available today |

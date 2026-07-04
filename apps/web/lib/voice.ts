@@ -34,6 +34,7 @@ const TOOL_LABELS: Record<string, string> = {
   crm_update_status: "updating the pipeline…",
   recent_transfers: "sweeping for fresh deals…",
   pipeline_briefing: "reading the pipeline…",
+  nightly_digest: "reading the overnight digest…",
 };
 
 type SpeechRecognitionLike = {

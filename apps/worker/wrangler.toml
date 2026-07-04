@@ -6,6 +6,17 @@ compatibility_flags = ["nodejs_compat"]
 [durable_objects]
 bindings = [{ name = "SESSION", class_name = "HviSessionDO" }]
 
+[[kv_namespaces]]
+binding = "HVI_KV"
+id = "993da56ebd17455e8a6b7af73584617d"
+
+# Nightly digest: 12:00 UTC = 7am Houston (CDT) / 6am (CST).
+[triggers]
+crons = ["0 12 * * *"]
+
+[vars]
+VAPID_PUBLIC_KEY = "BJ0ILYK2NWtuqNjtL_mSiS5NpODBrvi2ebZST-cdZkIoQtKV4tenpy5zkqcwU6p1yG4c5A4kgqBXWrM7-2lL9hA"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["HviSessionDO"]

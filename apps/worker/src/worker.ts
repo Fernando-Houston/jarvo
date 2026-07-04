@@ -9,10 +9,18 @@
 
 import { Session, type WsLike } from "../../gateway/src/session";
 import { runNightlyDigest, getLatestDigest, type DigestStore } from "../../gateway/src/tools/digest";
+import { listLeads, LEAD_STATUSES } from "../../gateway/src/tools/crm";
 import { sendPush, type PushSubscription, type VapidConfig } from "./webpush";
+import {
+  kvSnapshotStore,
+  newSnapshotState,
+  snapshotChunk,
+  type SnapshotState,
+} from "./snapshot";
 
 type Env = {
   SESSION: DurableObjectNamespace;
+  SNAPSHOT: DurableObjectNamespace;
   HVI_KV: KVNamespace;
   HVI_SHARED_SECRET?: string;
   ANTHROPIC_API_KEY?: string;
@@ -102,6 +110,17 @@ async function pushAll(
   return out;
 }
 
+/** Every zip the pipeline touches — the Time Machine's tracked areas. */
+async function trackedZips(): Promise<string[]> {
+  const leads = await listLeads([...LEAD_STATUSES], 500);
+  const zips = new Set<string>();
+  for (const l of leads) {
+    const m = l.address?.match(/\b(77\d{3})\b/);
+    if (m) zips.add(m[1]);
+  }
+  return [...zips].sort();
+}
+
 async function runDigestAndPush(env: Env) {
   const digest = await runNightlyDigest();
   const delivery = await pushAll(env, {
@@ -166,18 +185,99 @@ export default {
       const { digest, delivery } = await runDigestAndPush(env);
       return json({ digest, delivery });
     }
+    if (url.pathname === "/snapshot/run" && req.method === "POST") {
+      if (!authorized) return json({ error: "unauthorized" }, 401);
+      return env.SNAPSHOT.get(env.SNAPSHOT.idFromName("global")).fetch(
+        new Request("https://snapshot/start", { method: "POST" })
+      );
+    }
+    if (url.pathname === "/snapshot/status") {
+      if (!authorized) return json({ error: "unauthorized" }, 401);
+      return env.SNAPSHOT.get(env.SNAPSHOT.idFromName("global")).fetch(
+        new Request("https://snapshot/status")
+      );
+    }
 
     return new Response("HVI gateway: WebSocket endpoint", { status: 200, headers: CORS });
   },
 
-  // The nightly brain: 12:00 UTC = 7am Houston (CDT) / 6am (CST).
-  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+  // The overnight brain. Two schedules:
+  //   0 12 * * *  — nightly digest + push (7am Houston CDT / 6am CST)
+  //   0 8 1 * *   — monthly Time Machine snapshot (3am CDT on the 1st)
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     applyEnv(env);
+    if (event.cron === "0 8 1 * *") {
+      ctx.waitUntil(
+        env.SNAPSHOT.get(env.SNAPSHOT.idFromName("global"))
+          .fetch(new Request("https://snapshot/start", { method: "POST" }))
+          .then((r) => r.text())
+          .then((t) => console.log("[snapshot] monthly start:", t))
+          .catch((err) => console.error("[snapshot] monthly start failed:", err))
+      );
+      return;
+    }
     ctx.waitUntil(
       runDigestAndPush(env).catch((err) => console.error("[digest] nightly run failed:", err))
     );
   },
 };
+
+/** The Time Machine's engine room: one global DO whose alarm chain works
+ *  through the month's zip queue a subrequest-budget-sized chunk at a time.
+ *  State lives in DO storage (strongly consistent); parts land in KV. */
+export class HviSnapshotDO {
+  private env: Env;
+  private state: DurableObjectState;
+
+  constructor(state: DurableObjectState, env: Env) {
+    this.state = state;
+    this.env = env;
+  }
+
+  async fetch(req: Request): Promise<Response> {
+    applyEnv(this.env);
+    const url = new URL(req.url);
+    if (url.pathname === "/start" && req.method === "POST") {
+      const month = new Date().toISOString().slice(0, 7);
+      const existing = await this.state.storage.get<SnapshotState>("state");
+      if (existing && existing.month === month && !existing.finishedAt) {
+        return json({ ok: false, reason: "already running", state: existing });
+      }
+      let zips: string[];
+      try {
+        zips = await trackedZips();
+      } catch (err) {
+        return json({ ok: false, reason: `CRM zip scan failed: ${err instanceof Error ? err.message : err}` }, 500);
+      }
+      if (!zips.length) return json({ ok: false, reason: "no tracked zips in the pipeline" }, 409);
+      const state = newSnapshotState(month, zips);
+      await this.state.storage.put("state", state);
+      await this.state.storage.setAlarm(Date.now() + 1000);
+      return json({ ok: true, month, zips });
+    }
+    if (url.pathname === "/status") {
+      const state = await this.state.storage.get<SnapshotState>("state");
+      return json(state ?? { neverRun: true });
+    }
+    return json({ error: "unknown snapshot op" }, 404);
+  }
+
+  async alarm(): Promise<void> {
+    applyEnv(this.env);
+    let state = await this.state.storage.get<SnapshotState>("state");
+    if (!state || state.finishedAt) return;
+    state = await snapshotChunk(kvSnapshotStore(this.env.HVI_KV), state);
+    await this.state.storage.put("state", state);
+    if (!state.finishedAt) {
+      await this.state.storage.setAlarm(Date.now() + 4000);
+    } else {
+      const rows = state.done.reduce((n, d) => n + d.rows, 0);
+      console.log(
+        `[snapshot] ${state.month} complete: ${state.done.length} zips, ${rows} rows, ${state.errors.length} errors`
+      );
+    }
+  }
+}
 
 export class HviSessionDO {
   private env: Env;

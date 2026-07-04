@@ -16,6 +16,7 @@ import { chapter42Feasibility, type Ch42Result, type StreetType } from "./chapte
 import { cityOverlaysAt } from "./cityOverlays";
 import { groundAround } from "./ground";
 import { getLatestDigest, runNightlyDigest } from "./digest";
+import { composeVerdict } from "./verdict";
 import type { CompsVisual, GroundVisual } from "@hvi/shared";
 import {
   checkLead,
@@ -161,6 +162,18 @@ export const toolSchemas = [
           description: `Statuses to include (default ["hot_lead","new"]). Valid: ${LEAD_STATUSES.join(", ")}`,
         },
       },
+    },
+  },
+  {
+    name: "verdict",
+    description:
+      "The go/no-go screen: runs the full kill-chain on a parcel (by 13-digit HCAD account) — city overlays, FEMA flood, Chapter 42 yield, land comps, structure ratio — and returns GREEN/YELLOW/RED with the headline number: land basis per buildable unit vs the neighborhood land median, plus every signal with its reason. The map builds each layer as it runs. Call when the user asks for a verdict, whether to pursue/buy/chase a property, go-or-no-go, or 'is this a deal'. It is a screening rank from county records at appraisal basis, NOT underwriting — keep that framing.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        hcad_account: { type: "string", description: "13-digit HCAD account of the parcel to screen" },
+      },
+      required: ["hcad_account"],
     },
   },
   {
@@ -565,6 +578,31 @@ export async function executeTool(
           created: l.createdAt?.slice(0, 10) ?? null,
         })),
       });
+    }
+    case "verdict": {
+      const account = String(input.hcad_account ?? "");
+      const parcel = await resolveParcel(ctx, account);
+      if (!parcel) return JSON.stringify({ error: `No parcel found for HCAD ${account}` });
+      ctx.parcels.set(parcel.hcadAccount, parcel);
+      ctx.memory.knownParcels.set(parcel.hcadAccount, parcel);
+      // Run the kill-chain through the executor so each layer paints the map
+      // (flood tint, comps scatter, Ch.42 assembly) while the verdict forms.
+      // A failed link becomes a yellow "couldn't verify" signal, not a crash.
+      const sub = async (tool: string, args: Record<string, unknown>) => {
+        try {
+          return JSON.parse(await executeTool(tool, args, ctx));
+        } catch (err) {
+          return { error: err instanceof Error ? err.message : String(err) };
+        }
+      };
+      const overlays = await sub("city_overlays", { hcad_account: parcel.hcadAccount });
+      const flood = await sub("flood_check", { hcad_account: parcel.hcadAccount });
+      const ch42 = await sub("chapter42_feasibility", { hcad_account: parcel.hcadAccount });
+      const comps = await sub("comps", { hcad_account: parcel.hcadAccount });
+      const result = composeVerdict({ parcel, overlays, flood, ch42, comps });
+      ctx.memory.lastAccount = parcel.hcadAccount;
+      ctx.memory.lastMatches = 1;
+      return JSON.stringify(result);
     }
     case "nightly_digest": {
       try {

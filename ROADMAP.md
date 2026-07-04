@@ -374,6 +374,43 @@ Screen first), tap "alerts", allow notifications — then the 7am digest
 lands as a push.** Proper PNG icons still open. Push delivery to a real
 device untested until someone subscribes.
 
+**✅ TIME MACHINE SNAPSHOTS (2026-07-04, INTELLIGENCE-ROADMAP §5 #2) — KV
+INTERIM, R2 BLOCKED:** `apps/worker/src/snapshot.ts` + `HviSnapshotDO`
+(migration v2): monthly cron `0 8 1 * *` (3am CDT on the 1st) snapshots ALL
+62 HCAD attribute fields (no geometry) for every zip the pipeline touches
+(`trackedZips()` = distinct 77xxx from all leads' addresses, ~26 zips today).
+DO alarm chain: ≤10 pages (1000 rows, OBJECTID-keyset pagination) + 1 KV
+write per alarm run — fits free-plan subrequest limits; wounded zips are
+skipped and logged on state, never stall the chain. Parts: gzipped NDJSON at
+`snap:v1:<YYYY-MM>:<zip>:p<n>` behind a `SnapshotStore` interface — **R2 is
+NOT ENABLED on the account (API error 10042); storage is Workers KV for now
+(~26 zips ≈ 400k rows ≈ fits the 1GB free tier for months). USER ACTION:
+enable R2 in the Cloudflare dashboard (needs payment method) → then rebind
+the store to a `hvi-snapshots` bucket + widen scope to the whole county.**
+Routes: POST `/snapshot/run`, GET `/snapshot/status`. The FIRST snapshot
+(2026-07) was started today — the moat is compounding as of now. Verified:
+typecheck, prod deploy, first run swept live (status endpoint), digest still
+green.
+
+**✅ THE VERDICT TOOL (2026-07-04, INTELLIGENCE-ROADMAP §5 #3):**
+`tools/verdict.ts` — the kill-chain as one word. `verdict(hcad_account)`
+runs city_overlays → flood_check → chapter42_feasibility → comps THROUGH
+the executor (so the map paints every layer while the verdict forms), then
+`composeVerdict()` grades five signals — overlays (blocking = red), flood
+(floodway red / SFHA yellow), Ch.42 yield (0 units = red), pricing vs comps
+median (>+15% yellow), structure ratio (bld/total >50% yellow, <15% "trading
+as dirt") — overall = worst signal; headline number = appraised basis ÷
+buildable units + subject vs median land $/sqft. Failed links become yellow
+"couldn't verify" signals, never crashes. Every result carries the
+"screening at appraisal basis, not underwriting" note. Rules trigger
+/verdict|should we pursue|is this a deal/. VERIFIED local: 1218 Yale → RED
+(historic district; everything else green), 209 Milwaukee → RED (special
+min lot size — a restriction the plain Ch42 answer never surfaced!) +
+yellow 19% pricing premium. VERIFIED CLOUD E2E: "Verdict on 1218 Yale —
+should we pursue it?" → Claude chained property_lookup→verdict, map built
+parcel→flood(X)→ch42(4u)→comps, spoke "RED, and the reason is location,
+not the numbers" with receipts + honest framing. 559KB TTS.
+
 **✅ GROUND LAYER + "WHERE IS THIS?" (2026-07-04):** tools/ground.ts — USGS NHD
 flowlines (named bayous) + TxDOT Roadways (IH/US/SH) around the focus, decimated
 polylines → new GroundVisual wire kind → constellation renders them as faint

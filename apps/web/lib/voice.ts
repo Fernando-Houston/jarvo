@@ -35,6 +35,9 @@ const TOOL_LABELS: Record<string, string> = {
   recent_transfers: "sweeping for fresh deals…",
   pipeline_briefing: "reading the pipeline…",
   nightly_digest: "reading the overnight digest…",
+  verdict: "running the kill-chain…",
+  city_overlays: "checking city overlays…",
+  where_is_this: "reading the ground…",
 };
 
 type SpeechRecognitionLike = {

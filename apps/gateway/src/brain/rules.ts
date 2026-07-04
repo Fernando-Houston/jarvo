@@ -453,6 +453,46 @@ export function createRulesBrain(): Brain {
         return;
       }
 
+      // ── The Verdict ("should we pursue this?") — the kill-chain, one answer ──
+      if (/\bverdict\b|should (we|i) (pursue|buy|chase|go after)|worth (pursuing|chasing|buying|going after)|go.or.no.go|is (this|it) (a deal|worth it)|(pursue|chase) (this|it)\b/i.test(userText)) {
+        if (!mem.lastAccount) {
+          say("Ask me about a property first, then I'll run the verdict on it.");
+          return;
+        }
+        events.onTool("verdict", "start");
+        let v;
+        try {
+          v = JSON.parse(await executeTool("verdict", { hcad_account: mem.lastAccount }, ctx));
+        } catch {
+          events.onTool("verdict", "end");
+          say("The verdict engine hit a snag — try that again in a moment.");
+          return;
+        }
+        events.onTool("verdict", "end");
+        if (v.error) {
+          say("I couldn't pin down that parcel to run the verdict.");
+          return;
+        }
+        const addr = v.address ? ` on ${String(v.address).split(",")[0]}` : "";
+        say(`The verdict${addr}: ${v.verdict === "GREEN" ? "green — pursue it" : v.verdict === "YELLOW" ? "yellow — pursue with eyes open" : "red — walk unless the price says otherwise"}.`);
+        const h = v.headline;
+        if (h.land_basis_per_buildable_unit && h.buildable_units) {
+          say(
+            `The number that matters: about ${money(h.land_basis_per_buildable_unit)} of basis per buildable unit, across ${h.buildable_units} Chapter 42 units.`
+          );
+        }
+        if (h.subject_land_per_sqft != null && h.comps_land_median_per_sqft != null) {
+          say(
+            `The dirt runs ${Math.round(h.subject_land_per_sqft)} dollars a square foot against a ${Math.round(h.comps_land_median_per_sqft)}-dollar neighborhood median.`
+          );
+        }
+        const flagged = (v.signals as Array<{ status: string; detail: string }>).filter((s) => s.status !== "green");
+        for (const s of flagged.slice(0, 4)) say(s.detail);
+        if (!flagged.length) say("Overlays, flood, yield, pricing, and structure all come back clean.");
+        say("That's a screen from county records at appraisal basis — not underwriting.");
+        return;
+      }
+
       // ── "Give me the full picture" — chain every tool on the focus parcel ──
       if (/full (picture|workup|report|story)|run (everything|it all|the works)|brief me|work (it|this) up/i.test(userText)) {
         if (!mem.lastAccount) {

@@ -6,7 +6,7 @@
 // bearing/distance from the focus (sqrt-compressed so far-apart deals still
 // fit on screen). Luminous threads connect them, labeled with real distances.
 
-import type { ParcelVisual, CompsVisual } from "@hvi/shared";
+import type { ParcelVisual, CompsVisual, GroundVisual } from "@hvi/shared";
 import {
   TOTAL,
   MORPH_START,
@@ -47,6 +47,8 @@ let focus: ParcelVisual | null = null;
 let memories: ParcelVisual[] = [];
 /** Comps scatter for the CURRENT focus (dropped when focus changes). */
 let comps: CompsVisual | null = null;
+/** Ground layer (bayous/freeways) for the CURRENT focus. */
+let ground: GroundVisual | null = null;
 
 export function constellationSize(): number {
   return (focus ? 1 : 0) + memories.length;
@@ -56,12 +58,13 @@ export function clearConstellation(): void {
   focus = null;
   memories = [];
   comps = null;
+  ground = null;
 }
 
 /** Snapshot for persistence (localStorage now; CRM sessions later). */
 export function serializeConstellation(): string | null {
   if (!focus) return null;
-  return JSON.stringify({ v: 1, focus, memories, comps });
+  return JSON.stringify({ v: 1, focus, memories, comps, ground });
 }
 
 /** Restore a saved constellation; returns the rebuilt layout (or null). */
@@ -72,11 +75,13 @@ export function restoreConstellation(json: string): { layout: Layout; focus: Par
       focus: ParcelVisual;
       memories: ParcelVisual[];
       comps?: CompsVisual | null;
+      ground?: GroundVisual | null;
     };
     if (data.v !== 1 || !data.focus?.rings?.length) return null;
     focus = data.focus;
     memories = (data.memories ?? []).filter((m) => m?.rings?.length).slice(0, MAX_MEMORIES);
     comps = data.comps?.hcadAccount === data.focus.hcadAccount ? data.comps : null;
+    ground = data.ground?.hcadAccount === data.focus.hcadAccount ? data.ground : null;
     return { layout: layout(), focus };
   } catch {
     return null;
@@ -99,6 +104,13 @@ export function setComps(v: CompsVisual): Layout | null {
   return layout();
 }
 
+/** Materialize the ground (bayous/freeways) around the current focus. */
+export function setGround(v: GroundVisual): Layout | null {
+  if (!focus || focus.hcadAccount !== v.hcadAccount) return null;
+  ground = v.features.length ? v : null;
+  return layout();
+}
+
 function metersBetween(a: ParcelVisual, b: ParcelVisual): { dx: number; dy: number; dist: number } {
   const kx = Math.cos((a.centroid.lat * Math.PI) / 180);
   const dx = (b.centroid.lon - a.centroid.lon) * 111320 * kx; // east
@@ -115,6 +127,7 @@ export function addParcel(v: ParcelVisual): Layout {
   if (focus && focus.hcadAccount !== v.hcadAccount) {
     memories = [focus, ...memories.filter((m) => m.hcadAccount !== v.hcadAccount)].slice(0, MAX_MEMORIES);
     comps = null; // comps belonged to the old focus
+    ground = null; // so did the ground
   } else if (focus && focus.hcadAccount === v.hcadAccount) {
     memories = memories.filter((m) => m.hcadAccount !== v.hcadAccount);
   }
@@ -169,9 +182,14 @@ function layout(): Layout {
   // ── Particle budget across nodes ──
   const compList = comps?.comps ?? [];
   const hasComps = compList.length > 0;
+  const groundFeats = ground?.features ?? [];
+  const hasGround = groundFeats.length > 0;
   const focusCount =
-    hasMemories || hasComps ? Math.floor(MORPH_COUNT * (hasMemories && hasComps ? 0.45 : 0.55)) : MORPH_COUNT;
-  const pool = MORPH_COUNT - focusCount;
+    hasMemories || hasComps || hasGround
+      ? Math.floor(MORPH_COUNT * (hasMemories && hasComps ? 0.45 : 0.55))
+      : MORPH_COUNT;
+  const groundBudget = hasGround ? Math.floor((MORPH_COUNT - focusCount) * 0.45) : 0;
+  const pool = MORPH_COUNT - focusCount - groundBudget;
   const compBudget = hasComps ? Math.floor(pool * (hasMemories ? 0.4 : 1)) : 0;
   const perComp = hasComps ? Math.max(50, Math.floor(compBudget / compList.length)) : 0;
   const perMemory = hasMemories ? Math.floor((pool - compBudget) / memories.length) : 0;
@@ -267,6 +285,38 @@ function layout(): Layout {
     targets[i * 3 + 1] = focusAnchor[1];
     targets[i * 3 + 2] = focusAnchor[2];
     nodeKinds[i] = 1;
+  }
+
+  // ── Ground layer: bayous + freeways as faint streams, radially sqrt-warped ──
+  if (hasGround && focus) {
+    const R_REF = 2200; // meters at the edge of the warp
+    const kx = Math.cos((f.centroid.lat * Math.PI) / 180);
+    const warp = (lon: number, lat: number): [number, number] => {
+      const dx = (lon - f.centroid.lon) * 111320 * kx;
+      const dy = (lat - f.centroid.lat) * 110574;
+      const dist = Math.hypot(dx, dy) || 1;
+      const r = Math.sqrt(Math.min(dist, R_REF * 1.4) / R_REF) * 2.7;
+      return [(dx / dist) * r, (dy / dist) * r - 0.1];
+    };
+    const perFeat = Math.max(30, Math.floor(groundBudget / groundFeats.length));
+    for (const feat of groundFeats) {
+      if (cursor >= TOTAL) break;
+      const pts = feat.path.map(([lon, lat]) => warp(lon, lat));
+      const n = Math.min(perFeat, TOTAL - cursor);
+      for (let k = 0; k < n; k++) {
+        const t = (k / Math.max(1, n - 1)) * (pts.length - 1);
+        const i0 = Math.min(pts.length - 2, Math.floor(t));
+        const frac = t - i0;
+        const x = pts[i0][0] + (pts[i0 + 1][0] - pts[i0][0]) * frac + (Math.random() - 0.5) * 0.02;
+        const y = pts[i0][1] + (pts[i0 + 1][1] - pts[i0][1]) * frac + (Math.random() - 0.5) * 0.02;
+        const pt = tiltPoint(x, y, -0.04 + (Math.random() - 0.5) * 0.015);
+        targets[cursor * 3] = pt[0];
+        targets[cursor * 3 + 1] = pt[1];
+        targets[cursor * 3 + 2] = pt[2];
+        nodeKinds[cursor] = feat.kind === "water" ? 6 : 5;
+        cursor++;
+      }
+    }
   }
 
   // Tether from the hovering voice down to the focus parcel.

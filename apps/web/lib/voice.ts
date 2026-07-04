@@ -11,6 +11,7 @@ import { orbBus, setOrbLevel, setOrbMode, setOrbTargets, setOrbLines, setOrbFloo
 import {
   addParcel,
   setComps,
+  setGround,
   focusParcelById,
   clearConstellation,
   serializeConstellation,
@@ -190,6 +191,18 @@ class VoiceClient {
             if (snapshot) localStorage.setItem(SAVE_KEY, snapshot);
           } catch {
             /* storage full/blocked — the session still works */
+          }
+        }
+        if (msg.visual.kind === "ground") {
+          const layout = setGround(msg.visual);
+          if (layout) {
+            this.applyLayout(layout);
+            try {
+              const snapshot = serializeConstellation();
+              if (snapshot) localStorage.setItem(SAVE_KEY, snapshot);
+            } catch {
+              /* storage full/blocked */
+            }
           }
         }
         if (msg.visual.kind === "comps") {

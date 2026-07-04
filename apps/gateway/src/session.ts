@@ -1,7 +1,7 @@
 // One Session per WebSocket connection: owns the STT stream, the brain,
 // the TTS queue, and the turn lifecycle (listening → thinking → speaking).
 
-import type { Capabilities, ServerMsg, ParcelVisual, CompsVisual } from "@hvi/shared";
+import type { Capabilities, ServerMsg, ParcelVisual, CompsVisual, GroundVisual } from "@hvi/shared";
 
 /** Minimal socket surface Session needs — satisfied by both the `ws`
  *  package (Node gateway) and the Workers server-side WebSocket (via a
@@ -169,7 +169,7 @@ export class Session {
     this.send({ type: "state", state: "thinking" });
 
     const parcels = new Map<string, Parcel>();
-    const emitVisual = (v: ParcelVisual | CompsVisual) => {
+    const emitVisual = (v: ParcelVisual | CompsVisual | GroundVisual) => {
       if (!abort.signal.aborted) this.send({ type: "visual", visual: v });
     };
 

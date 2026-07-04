@@ -348,3 +348,13 @@ Historic District → Claude reversed its own townhome rec to renovation play,
 citing Certificate of Appropriateness. FEMA cloud fix (UA header) also ✅.
 Parked from this sweep: homestead flag (not in HCAD parcels layer — needs
 different dataset), tax delinquency, permits, Ch42 urban/suburban boundary.
+
+**✅ GROUND LAYER + "WHERE IS THIS?" (2026-07-04):** tools/ground.ts — USGS NHD
+flowlines (named bayous) + TxDOT Roadways (IH/US/SH) around the focus, decimated
+polylines → new GroundVisual wire kind → constellation renders them as faint
+particle streams (nodeKind 5 road amber / 6 water blue, radial sqrt warp
+R_REF=2200m→2.7 world units, 45% of pool when present); spoken orientation
+(downtown dist/dir, nearest bayou/freeway). Rules /where is|what's around/ +
+Claude schema. VERIFIED CLOUD E2E: 1218 Yale → Whiteoak Bayou + I-10 on map,
+"2.8 mi NW of downtown" spoken. Session-lifecycle fix same day: focus-note
+context injection (reconnect amnesia) — see git log.

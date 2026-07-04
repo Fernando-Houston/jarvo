@@ -146,6 +146,31 @@ export function createRulesBrain(): Brain {
         return;
       }
 
+      // ── Orientation ("where is this?") — the ground materializes ──
+      if (/where (is|am|are)|what('s| is) (around|near)|orient me|show me the (area|ground)/i.test(userText)) {
+        if (!mem.lastAccount) {
+          say("Ask me about a property first, then I can show you where it sits.");
+          return;
+        }
+        events.onTool("where_is_this", "start");
+        try {
+          const g = JSON.parse(await executeTool("where_is_this", { hcad_account: mem.lastAccount }, ctx));
+          events.onTool("where_is_this", "end");
+          if (g.error) {
+            say("I couldn't pin down that parcel to orient you.");
+          } else {
+            say(`You're ${g.downtown}${g.zip ? `, zip ${g.zip}` : ""}.`);
+            if (g.nearest_bayou) say(`${g.nearest_bayou.replace("~", "about ").replace("mi", "miles away")}.`);
+            if (g.nearest_freeway) say(`${g.nearest_freeway.replace("~", "about ").replace("mi", "miles away")}.`);
+            if (g.ground_features_on_map) say("The bayous and freeways are materializing on your map now.");
+          }
+        } catch {
+          events.onTool("where_is_this", "end");
+          say("The map servers didn't answer just now. Ask me where this is again in a moment.");
+        }
+        return;
+      }
+
       // ── City overlays ("any restrictions?", "is it historic?") ──
       if (/historic|conservation|restrict|overlay|opportunity zone|preservation/i.test(userText)) {
         if (!mem.lastAccount) {

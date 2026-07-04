@@ -14,7 +14,8 @@ import {
 import { floodCheckParcel, type FloodInfo } from "./fema";
 import { chapter42Feasibility, type Ch42Result, type StreetType } from "./chapter42";
 import { cityOverlaysAt } from "./cityOverlays";
-import type { CompsVisual } from "@hvi/shared";
+import { groundAround } from "./ground";
+import type { CompsVisual, GroundVisual } from "@hvi/shared";
 import {
   checkLead,
   crmAvailable,
@@ -50,7 +51,7 @@ export type ToolContext = {
   /** Parcels found during this turn, keyed by HCAD account. */
   parcels: Map<string, Parcel>;
   memory: SessionMemory;
-  emitVisual: (v: ParcelVisual | CompsVisual) => void;
+  emitVisual: (v: ParcelVisual | CompsVisual | GroundVisual) => void;
 };
 
 /** Resolve a parcel from this turn, session history, or live HCAD. */
@@ -165,6 +166,18 @@ export const toolSchemas = [
     name: "city_overlays",
     description:
       "Check City of Houston planning overlays at a parcel (by 13-digit HCAD account): historic districts (city = approvals/demo restrictions; national register), conservation districts, special minimum lot size / building line areas (these BLOCK small-lot townhome subdivision), market-based parking (no parking minimums), and federal opportunity zones (tax incentive). ALWAYS call this before recommending a townhome/subdivision play, and whenever the user asks about restrictions, historic status, or buildability.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        hcad_account: { type: "string", description: "13-digit HCAD account number" },
+      },
+      required: ["hcad_account"],
+    },
+  },
+  {
+    name: "where_is_this",
+    description:
+      "Geographic orientation for a parcel (by 13-digit HCAD account): distance/direction from downtown Houston, nearest named bayou and freeway — and it materializes the ground (bayous + freeways as particle streams) around the parcel on the map. Call when the user asks where something is, what's around/near it, or for orientation.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -555,6 +568,25 @@ export async function executeTool(
           ? "RESTRICTED: " + blocking.map((h) => h.label + (h.name ? ` (${h.name})` : "")).join("; ")
           : "no city development restrictions found at this point",
         note: "point-in-polygon at the parcel centroid; deed restrictions recorded with the county are NOT covered",
+      });
+    }
+    case "where_is_this": {
+      const account = String(input.hcad_account ?? "");
+      const parcel = await resolveParcel(ctx, account);
+      if (!parcel) return JSON.stringify({ error: `No parcel found for HCAD ${account}` });
+      const g = await groundAround(parcel.lat, parcel.lon);
+      ctx.memory.lastAccount = parcel.hcadAccount;
+      if (g.features.length) {
+        ctx.emitVisual({ kind: "ground", hcadAccount: parcel.hcadAccount, features: g.features });
+      }
+      return JSON.stringify({
+        hcad_account: parcel.hcadAccount,
+        address: parcel.address,
+        zip: parcel.zip,
+        downtown: `${g.downtownMiles} miles ${g.downtownDirection} of downtown Houston`,
+        nearest_bayou: g.nearestWater ? `${g.nearestWater.name} ~${g.nearestWater.miles} mi` : null,
+        nearest_freeway: g.nearestRoad ? `${g.nearestRoad.name} ~${g.nearestRoad.miles} mi` : null,
+        ground_features_on_map: g.features.length,
       });
     }
     case "crm_lead_check": {

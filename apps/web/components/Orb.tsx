@@ -91,7 +91,7 @@ const vertexShader = /* glsl */ `
     vec3 dataPos = aTarget + vec3(0.0, 0.0, 0.025 * sin(t * 1.6 + seed * 20.0));
     // Layout nodes (Chapter 42 buildings, kind 4+order) assemble in rect
     // order — a wave across the site plan — instead of by random seed.
-    float isLayoutV = step(3.5, aNodeKind);
+    float isLayoutV = step(3.5, aNodeKind) * (1.0 - step(4.5, aNodeKind));
     float mSeed = clamp(uMorph * 1.35 - seed * 0.35, 0.0, 1.0);
     float mRect = clamp(uMorph * 2.0 - fract(aNodeKind) * 1.15, 0.0, 1.0);
     float m = mix(mSeed, mRect, isLayoutV);
@@ -113,7 +113,8 @@ const vertexShader = /* glsl */ `
     float size = (3.4 + sparkle * 3.2 + aKind * 0.6)
                * (1.0 + uLevel * 0.5)
                * (1.0 - m * 0.25)
-               * (1.0 - step(2.5, aNodeKind) * (1.0 - step(3.5, aNodeKind)) * m * 0.4); // comps: smaller dots
+               * (1.0 - step(2.5, aNodeKind) * (1.0 - step(3.5, aNodeKind)) * m * 0.4) // comps: smaller dots
+               * (1.0 - step(4.5, aNodeKind) * m * 0.45); // ground: finest grain
     gl_PointSize = size * (3.4 / max(1.0, -mv.z));
   }
 `;
@@ -146,13 +147,18 @@ const fragmentShader = /* glsl */ `
     float isFocusNode = step(0.5, vNodeKind) * (1.0 - step(1.5, vNodeKind));
     float isMemNode = step(1.5, vNodeKind) * (1.0 - step(2.5, vNodeKind));
     float isCompNode = step(2.5, vNodeKind) * (1.0 - step(3.5, vNodeKind));
-    float isLayoutNode = step(3.5, vNodeKind);
+    float isLayoutNode = step(3.5, vNodeKind) * (1.0 - step(4.5, vNodeKind));
+    float isRoadNode = step(4.5, vNodeKind) * (1.0 - step(5.5, vNodeKind));
+    float isWaterNode = step(5.5, vNodeKind);
     vec3 gold = vec3(1.0, 0.78, 0.25);
     tint = mix(tint, gold, vMorph * isFocusNode * 0.9);
     tint = mix(tint, spring, vMorph * isMemNode * 0.7);
     tint = mix(tint, vec3(0.55, 0.82, 0.95), vMorph * isCompNode * 0.8);
     // Chapter 42 buildings: warm incandescent white, brighter than the lot.
     tint = mix(tint, vec3(1.0, 0.95, 0.78), vMorph * isLayoutNode * 0.95);
+    // Ground layer: freeways as amber streams, bayous as water.
+    tint = mix(tint, vec3(1.0, 0.62, 0.24), vMorph * isRoadNode * 0.85);
+    tint = mix(tint, vec3(0.25, 0.55, 1.0), vMorph * isWaterNode * 0.9);
     // Floodplain: the focus parcel drowns from gold into water blue.
     vec3 floodBlue = vec3(0.25, 0.55, 1.0);
     tint = mix(tint, floodBlue, vMorph * isFocusNode * uFlood * 0.85);
@@ -162,6 +168,7 @@ const fragmentShader = /* glsl */ `
     color *= vBright * (1.0 + vKind * 0.25 + vMorph * isMemNode * 0.35);
     color *= 1.0 - vMorph * isCompNode * 0.45; // comps read as background data
     color *= 1.0 + vMorph * isLayoutNode * 0.4; // buildings pop
+    color *= 1.0 - vMorph * (isRoadNode + isWaterNode) * 0.5; // ground stays faint
 
     float alpha = (halo + core) * 0.9;
     gl_FragColor = vec4(color, alpha);

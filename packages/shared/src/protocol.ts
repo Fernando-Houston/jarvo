@@ -67,7 +67,21 @@ export type CompsVisual = {
   medianPerSqft: number | null;
 };
 
-export type Visual = ParcelVisual | CompsVisual | { kind: "dissolve" };
+/** The ground materializing around the focus: named bayous and freeways as
+ *  faint particle streams, so "where is this?" has a visual answer. */
+export type GroundVisual = {
+  kind: "ground";
+  /** Focus parcel these features surround (must match current focus). */
+  hcadAccount: string;
+  features: Array<{
+    kind: "water" | "road";
+    name: string;
+    /** [lon, lat] vertices, decimated server-side. */
+    path: [number, number][];
+  }>;
+};
+
+export type Visual = ParcelVisual | CompsVisual | GroundVisual | { kind: "dissolve" };
 
 // ── Client → Gateway ───────────────────────────────────────────────────────
 export type ClientMsg =

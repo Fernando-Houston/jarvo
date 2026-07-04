@@ -268,7 +268,7 @@ The shift: individual Q&A → shared institutional memory + division of labor.
 | # | Build | Why first |
 |---|---|---|
 | 1 | ✅ Nightly digest cron + push notifications (2026-07-04, see ROADMAP.md) | Flips pull→push; creates the daily ritual |
-| 2 | ✅ Time Machine snapshots (2026-07-04; KV interim — USER: enable R2 in dashboard) | Compounds from day one; every month waited is moat lost |
+| 2 | ✅ Time Machine snapshots (2026-07-04; R2 enabled same day — full county roll, 1.55M rows/month) | Compounds from day one; every month waited is moat lost |
 | 3 | ✅ Verdict tool (2026-07-04, see ROADMAP.md) | Collapses the platform into one magic sentence |
 | 4 | ✅ Tax delinquency connect (2026-07-04 via LGBS tax-sale API, see ROADMAP.md) | Best motivated-seller signal available today |
 | 5 | ✅ LLC graph + assemblage detector (2026-07-04, see ROADMAP.md) | Deals that don't exist without Jarvo |

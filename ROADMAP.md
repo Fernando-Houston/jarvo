@@ -399,6 +399,12 @@ default sweep is now `county` (the FULL 1.77M-parcel roll, ~1,770 pages ≈
 July's 41 KV parts migrated to R2 via budgeted POST `/snapshot/migrate`
 (KV list eventual-consistency gotcha: deleted keys linger in listings as
 null gets — skip cheaply). County-wide 2026-07 sweep started same day.
+**COUNTY SWEEP COMPLETE + VERIFIED (2026-07-04 19:31 UTC): 1,547,418 rows
+(the full active roll), 155 county parts + 41 migrated zip parts = 196 R2
+objects, 401MB, 0 errors, ~25 min; KV snap prefix fully drained; sample
+part gunzips clean (61 fields/row). R2 user action RESOLVED — the Time
+Machine's permanent home is live and the monthly cron archives the whole
+county from here on.**
 
 **✅ THE VERDICT TOOL (2026-07-04, INTELLIGENCE-ROADMAP §5 #3):**
 `tools/verdict.ts` — the kill-chain as one word. `verdict(hcad_account)`

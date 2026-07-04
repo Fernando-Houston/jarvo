@@ -1,0 +1,15 @@
+{
+  "name": "hvi",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Houston Voice Intelligence — voice-first AI for Houston real estate",
+  "scripts": {
+    "dev": "concurrently -n gateway,web -c yellow,cyan \"pnpm --filter @hvi/gateway dev\" \"pnpm --filter @hvi/web dev\"",
+    "dev:gateway": "pnpm --filter @hvi/gateway dev",
+    "dev:web": "pnpm --filter @hvi/web dev",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

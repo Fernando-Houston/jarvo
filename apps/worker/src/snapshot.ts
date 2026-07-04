@@ -3,15 +3,17 @@
 // churn, and exemption-style deltas only exist if somebody archives. Every
 // month this runs, the dataset becomes something nobody else has.
 //
-// Storage: gzipped NDJSON parts in Workers KV under
-//   snap:v1:<YYYY-MM>:<zip>:p<part>   (all 62 HCAD attribute fields, no geometry)
-// KV is the free-tier stand-in — the key scheme is R2-ready, and the write
-// path is behind SnapshotStore so enabling R2 is a one-line rebind.
+// Storage: gzipped NDJSON parts under
+//   snap:v1:<YYYY-MM>:<scope>:p<part>   (all 62 HCAD attribute fields, no
+// geometry; <scope> is a zip like "77007", or "county" for the full-roll
+// sweep). R2 is the home (10GB free ≈ 2 years of monthly county sweeps);
+// the KV store remains as the fallback the first month ran on.
 //
 // Execution: a Durable Object alarm chain. Each alarm invocation fetches at
 // most PAGES_PER_RUN pages (1000 rows each, OBJECTID-keyset pagination) and
 // writes one part — comfortably inside the per-invocation subrequest budget —
-// then re-alarms until the month's queue is empty.
+// then re-alarms until the month's queue is empty. A county sweep is ~1,770
+// pages ≈ 177 alarm runs ≈ an hour once a month.
 
 export type SnapshotStore = {
   put(key: string, value: ArrayBuffer, metadata?: Record<string, unknown>): Promise<void>;
@@ -34,9 +36,31 @@ export function kvSnapshotStore(kv: KVNamespace): SnapshotStore {
   };
 }
 
+export function r2SnapshotStore(bucket: R2Bucket): SnapshotStore {
+  return {
+    put: async (key, value, metadata) => {
+      // R2 customMetadata values must be strings.
+      const custom: Record<string, string> = {};
+      for (const [k, v] of Object.entries(metadata ?? {})) custom[k] = String(v);
+      await bucket.put(key, value, { customMetadata: custom });
+    },
+    list: async (prefix) => {
+      const out: Array<{ name: string; metadata?: unknown }> = [];
+      let cursor: string | undefined;
+      do {
+        const page = await bucket.list({ prefix, cursor, include: ["customMetadata"] });
+        out.push(...page.objects.map((o) => ({ name: o.key, metadata: o.customMetadata })));
+        cursor = page.truncated ? page.cursor : undefined;
+      } while (cursor);
+      return out;
+    },
+  };
+}
+
 export type SnapshotState = {
   month: string; // "2026-07"
-  queue: string[]; // zips not yet started
+  /** Scopes not yet started: zips ("77007") or "county" for the full roll. */
+  queue: string[];
   current: { zip: string; lastOid: number; part: number; rows: number } | null;
   done: Array<{ zip: string; rows: number; parts: number }>;
   startedAt: string;
@@ -51,9 +75,10 @@ export const PAGES_PER_RUN = 10;
 
 type Attrs = Record<string, unknown>;
 
-async function fetchPage(zip: string, lastOid: number): Promise<Attrs[]> {
+async function fetchPage(scope: string, lastOid: number): Promise<Attrs[]> {
+  const scopeWhere = scope === "county" ? "1=1" : `site_zip='${scope}'`;
   const body = new URLSearchParams({
-    where: `site_zip='${zip}' AND OBJECTID>${lastOid}`,
+    where: `${scopeWhere} AND OBJECTID>${lastOid}`,
     outFields: "*",
     returnGeometry: "false",
     orderByFields: "OBJECTID ASC",

@@ -13,6 +13,10 @@ bindings = [
 binding = "HVI_KV"
 id = "993da56ebd17455e8a6b7af73584617d"
 
+[[r2_buckets]]
+binding = "SNAPSHOTS"
+bucket_name = "hvi-snapshots"
+
 # Nightly digest 12:00 UTC (7am Houston CDT); monthly Time Machine snapshot
 # 08:00 UTC on the 1st (3am CDT).
 [triggers]

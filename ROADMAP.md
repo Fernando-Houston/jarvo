@@ -391,6 +391,14 @@ Routes: POST `/snapshot/run`, GET `/snapshot/status`. The FIRST snapshot
 (2026-07) was started today — the moat is compounding as of now. Verified:
 typecheck, prod deploy, first run swept live (status endpoint), digest still
 green.
+**R2 UPGRADE (2026-07-04, same day — user enabled R2):** bucket
+`hvi-snapshots` created; `r2SnapshotStore` added; the DO picks R2 when the
+`SNAPSHOTS` binding exists (KV remains the fallback). Scope generalized:
+default sweep is now `county` (the FULL 1.77M-parcel roll, ~1,770 pages ≈
+177 alarm runs ≈ an hour, monthly) — `?scope=zips` narrows to pipeline zips.
+July's 41 KV parts migrated to R2 via budgeted POST `/snapshot/migrate`
+(KV list eventual-consistency gotcha: deleted keys linger in listings as
+null gets — skip cheaply). County-wide 2026-07 sweep started same day.
 
 **✅ THE VERDICT TOOL (2026-07-04, INTELLIGENCE-ROADMAP §5 #3):**
 `tools/verdict.ts` — the kill-chain as one word. `verdict(hcad_account)`

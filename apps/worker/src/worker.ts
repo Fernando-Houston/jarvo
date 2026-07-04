@@ -14,8 +14,10 @@ import { distillBuyBox, getBuyBox } from "../../gateway/src/brain/buybox";
 import { sendPush, type PushSubscription, type VapidConfig } from "./webpush";
 import {
   kvSnapshotStore,
+  r2SnapshotStore,
   newSnapshotState,
   snapshotChunk,
+  type SnapshotStore,
   type SnapshotState,
 } from "./snapshot";
 
@@ -23,6 +25,8 @@ type Env = {
   SESSION: DurableObjectNamespace;
   SNAPSHOT: DurableObjectNamespace;
   HVI_KV: KVNamespace;
+  /** R2 home of the Time Machine (KV was the pre-R2 interim). */
+  SNAPSHOTS?: R2Bucket;
   HVI_SHARED_SECRET?: string;
   ANTHROPIC_API_KEY?: string;
   DEEPGRAM_API_KEY?: string;
@@ -205,8 +209,9 @@ export default {
     }
     if (url.pathname === "/snapshot/run" && req.method === "POST") {
       if (!authorized) return json({ error: "unauthorized" }, 401);
+      const scope = url.searchParams.get("scope") === "zips" ? "zips" : "county";
       return env.SNAPSHOT.get(env.SNAPSHOT.idFromName("global")).fetch(
-        new Request("https://snapshot/start", { method: "POST" })
+        new Request(`https://snapshot/start?scope=${scope}`, { method: "POST" })
       );
     }
     if (url.pathname === "/snapshot/status") {
@@ -214,6 +219,37 @@ export default {
       return env.SNAPSHOT.get(env.SNAPSHOT.idFromName("global")).fetch(
         new Request("https://snapshot/status")
       );
+    }
+    // One-time KV→R2 migration of the pre-R2 snapshot parts. Budgeted per
+    // call (get+put+delete each); loop until remaining=0.
+    if (url.pathname === "/snapshot/migrate" && req.method === "POST") {
+      if (!authorized) return json({ error: "unauthorized" }, 401);
+      if (!env.SNAPSHOTS) return json({ error: "R2 binding missing" }, 503);
+      // KV list is eventually consistent — deleted keys linger in listings
+      // for a while, coming back as null gets. Skip those (cheap) and spend
+      // the real budget (put+delete pairs) only on keys that still hold data.
+      const page = await env.HVI_KV.list({ prefix: "snap:v1:", limit: 1000 });
+      let migrated = 0;
+      let stale = 0;
+      let ops = 1;
+      for (const k of page.keys) {
+        if (ops >= 40) break;
+        const { value, metadata } = await env.HVI_KV.getWithMetadata(k.name, "arrayBuffer");
+        ops++;
+        if (!value) {
+          stale++;
+          continue;
+        }
+        const custom: Record<string, string> = {};
+        for (const [mk, mv] of Object.entries((metadata as Record<string, unknown>) ?? {})) {
+          custom[mk] = String(mv);
+        }
+        await env.SNAPSHOTS.put(k.name, value, { customMetadata: custom });
+        await env.HVI_KV.delete(k.name);
+        ops += 2;
+        migrated++;
+      }
+      return json({ migrated, staleListed: stale, listed: page.keys.length });
     }
 
     return new Response("HVI gateway: WebSocket endpoint", { status: 200, headers: CORS });
@@ -265,6 +301,11 @@ export class HviSnapshotDO {
     this.env = env;
   }
 
+  /** R2 when bound (the real archive), KV as the pre-R2 fallback. */
+  private store(): SnapshotStore {
+    return this.env.SNAPSHOTS ? r2SnapshotStore(this.env.SNAPSHOTS) : kvSnapshotStore(this.env.HVI_KV);
+  }
+
   async fetch(req: Request): Promise<Response> {
     applyEnv(this.env);
     const url = new URL(req.url);
@@ -274,17 +315,23 @@ export class HviSnapshotDO {
       if (existing && existing.month === month && !existing.finishedAt) {
         return json({ ok: false, reason: "already running", state: existing });
       }
-      let zips: string[];
-      try {
-        zips = await trackedZips();
-      } catch (err) {
-        return json({ ok: false, reason: `CRM zip scan failed: ${err instanceof Error ? err.message : err}` }, 500);
+      // Default is the full county roll (time is the moat — archive all of
+      // it); "zips" narrows to pipeline zips for ad-hoc reruns.
+      let scopes: string[];
+      if (url.searchParams.get("scope") === "zips") {
+        try {
+          scopes = await trackedZips();
+        } catch (err) {
+          return json({ ok: false, reason: `CRM zip scan failed: ${err instanceof Error ? err.message : err}` }, 500);
+        }
+        if (!scopes.length) return json({ ok: false, reason: "no tracked zips in the pipeline" }, 409);
+      } else {
+        scopes = ["county"];
       }
-      if (!zips.length) return json({ ok: false, reason: "no tracked zips in the pipeline" }, 409);
-      const state = newSnapshotState(month, zips);
+      const state = newSnapshotState(month, scopes);
       await this.state.storage.put("state", state);
       await this.state.storage.setAlarm(Date.now() + 1000);
-      return json({ ok: true, month, zips });
+      return json({ ok: true, month, scopes, store: this.env.SNAPSHOTS ? "r2" : "kv" });
     }
     if (url.pathname === "/status") {
       const state = await this.state.storage.get<SnapshotState>("state");
@@ -297,7 +344,7 @@ export class HviSnapshotDO {
     applyEnv(this.env);
     let state = await this.state.storage.get<SnapshotState>("state");
     if (!state || state.finishedAt) return;
-    state = await snapshotChunk(kvSnapshotStore(this.env.HVI_KV), state);
+    state = await snapshotChunk(this.store(), state);
     await this.state.storage.put("state", state);
     if (!state.finishedAt) {
       await this.state.storage.setAlarm(Date.now() + 4000);

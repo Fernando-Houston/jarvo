@@ -493,6 +493,21 @@ Jarvo now pre-sorts like a partner. NOTE: first prod distill returned a
 transient null (suspected stale supabase sign-in state in a long-lived
 isolate) — succeeded on retry; reasons now logged.
 
+**✅ VOICE PERSONA PASS (2026-07-04, the verifiable slice of
+INTELLIGENCE-ROADMAP §5 #9):** one character paragraph in the Claude system
+prompt (dry, numerate, Houston-fluent, allergic to hype; "worth a look" or
+"a pass", never "an incredible opportunity"; sides with data gently). The
+cached block changed ONCE — keep it byte-stable again. VERIFIED CLOUD E2E
+under hype pressure ("wholesaler says it'll double in a year"): → "that's
+the wholesaler's script, not a number… 60 dollars a foot is already full
+retail… outside your usual 77004 hunting ground. Want me to run the flood
+check before you give the wholesaler any oxygen?" (5330 Indigo = Meyerland;
+the flood instinct is correct — it's Zone AE.)
+STILL OPEN from §5: #8 multiplayer constellation (a full session of work:
+room DO + protocol + client merge — do it fresh); #9 flood-water ground
+render + barge-in (both need human eyes/ears to verify — pair with the
+next demo session).
+
 **✅ GROUND LAYER + "WHERE IS THIS?" (2026-07-04):** tools/ground.ts — USGS NHD
 flowlines (named bayous) + TxDOT Roadways (IH/US/SH) around the focus, decimated
 polylines → new GroundVisual wire kind → constellation renders them as faint

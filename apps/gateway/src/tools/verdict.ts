@@ -11,7 +11,7 @@
 import type { Parcel } from "./hcad";
 
 export type Signal = {
-  factor: "overlays" | "flood" | "chapter42" | "pricing" | "structure";
+  factor: "overlays" | "flood" | "chapter42" | "pricing" | "structure" | "distress";
   status: "green" | "yellow" | "red";
   detail: string;
 };
@@ -53,6 +53,13 @@ type CompsResult = {
   subject_land_per_sqft?: number | null;
   land_per_sqft?: { median: number | null };
 };
+type TaxSaleResult = {
+  error?: string;
+  in_tax_sale_pipeline?: boolean;
+  sale_type?: string;
+  status?: string;
+  auction_date?: string | null;
+};
 
 export function composeVerdict(inputs: {
   parcel: Parcel;
@@ -60,8 +67,9 @@ export function composeVerdict(inputs: {
   flood: FloodResult | null;
   ch42: Ch42Result | null;
   comps: CompsResult | null;
+  taxSale?: TaxSaleResult | null;
 }): Verdict {
-  const { parcel, overlays, flood, ch42, comps } = inputs;
+  const { parcel, overlays, flood, ch42, comps, taxSale } = inputs;
   const signals: Signal[] = [];
 
   // ── City overlays: the play-killers come first ──
@@ -139,6 +147,19 @@ export function composeVerdict(inputs: {
     } else {
       signals.push({ factor: "structure", status: "green", detail: `Improvements are ${Math.round(ratio * 100)}% of the appraisal.` });
     }
+  }
+
+  // ── Distress: delinquency-in-suit makes the SELLER motivated — it never
+  //    downgrades the verdict, it sharpens the pitch. ──
+  if (taxSale && !taxSale.error && taxSale.in_tax_sale_pipeline) {
+    signals.push({
+      factor: "distress",
+      status: "green",
+      detail:
+        `Owner is in the delinquent-tax legal pipeline (${(taxSale.status ?? taxSale.sale_type ?? "suit filed").toLowerCase()}` +
+        (taxSale.auction_date ? `, auction ${taxSale.auction_date}` : "") +
+        ") — a motivated seller, and a clock.",
+    });
   }
 
   const worst = signals.some((s) => s.status === "red")

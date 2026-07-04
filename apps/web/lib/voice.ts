@@ -36,6 +36,8 @@ const TOOL_LABELS: Record<string, string> = {
   pipeline_briefing: "reading the pipeline…",
   nightly_digest: "reading the overnight digest…",
   verdict: "running the kill-chain…",
+  tax_sale_check: "checking the tax-sale pipeline…",
+  tax_sale_radar: "sweeping for tax distress…",
   city_overlays: "checking city overlays…",
   where_is_this: "reading the ground…",
 };

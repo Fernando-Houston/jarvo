@@ -453,6 +453,60 @@ export function createRulesBrain(): Brain {
         return;
       }
 
+      // ── Tax delinquency ("behind on taxes?", "tax sales near here?") ──
+      if (/tax (sale|auction|delinquen|suit)|delinquent|behind on .*tax|owes? .*tax|distress/i.test(userText)) {
+        if (!mem.lastAccount) {
+          say("Ask me about a property first, then I can check the tax-sale pipeline around it.");
+          return;
+        }
+        const radar = /\b(near|nearby|around|area|close|radar)\b/i.test(userText);
+        const tool = radar ? "tax_sale_radar" : "tax_sale_check";
+        events.onTool(tool, "start");
+        let t;
+        try {
+          t = JSON.parse(await executeTool(tool, { hcad_account: mem.lastAccount }, ctx));
+        } catch {
+          events.onTool(tool, "end");
+          say("The tax-sale listings didn't answer just now — try again in a moment.");
+          return;
+        }
+        events.onTool(tool, "end");
+        if (t.error) {
+          say("The tax-sale listings didn't answer just now — try again in a moment.");
+        } else if (!radar) {
+          if (t.in_tax_sale_pipeline) {
+            say(
+              `Yes — this one is in the delinquent-tax legal pipeline: ${String(t.status).toLowerCase()}` +
+                (t.auction_date ? `, with an auction set for ${t.auction_date}` : "") +
+                (t.minimum_bid ? `, minimum bid ${money(t.minimum_bid)}` : "") +
+                ". That's a motivated seller with a clock running."
+            );
+          } else {
+            say(
+              "No tax suit or auction on record with the county's collection firm. That doesn't prove taxes are current — owners merely behind, short of a lawsuit, don't show in these listings."
+            );
+          }
+        } else {
+          if (!t.distressed_count) {
+            say("No tax suits or scheduled auctions within a mile — clean on the distress radar.");
+          } else {
+            say(
+              `Found ${t.distressed_count} propert${t.distressed_count === 1 ? "y" : "ies"} in the delinquent-tax pipeline within a mile — the closest are on your map now.`
+            );
+            for (const d of t.distressed.slice(0, 2)) {
+              say(
+                `${(d.address ?? "One").split(",")[0]} is ${String(d.status).toLowerCase()}` +
+                  (d.auction_date ? `, auction ${d.auction_date}` : "") +
+                  (d.minimum_bid ? `, minimum bid ${money(d.minimum_bid)}` : "") +
+                  "."
+              );
+            }
+            say("Those come from the collection firm's sale listings — suits and auctions, not the full delinquent roll.");
+          }
+        }
+        return;
+      }
+
       // ── The Verdict ("should we pursue this?") — the kill-chain, one answer ──
       if (/\bverdict\b|should (we|i) (pursue|buy|chase|go after)|worth (pursuing|chasing|buying|going after)|go.or.no.go|is (this|it) (a deal|worth it)|(pursue|chase) (this|it)\b/i.test(userText)) {
         if (!mem.lastAccount) {

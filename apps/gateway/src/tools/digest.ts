@@ -10,6 +10,7 @@
 
 import { listLeads } from "./crm";
 import { lookupByAccount, lookupRecentTransfers, type Parcel } from "./hcad";
+import { taxSaleNear, type TaxSaleRecord } from "./taxsale";
 
 /** Minimal async KV surface — Workers KV in the cloud, in-memory in Node dev. */
 export type DigestStore = {
@@ -46,6 +47,7 @@ export type Digest = {
     hotLeads: number;
     areasSwept: number;
     freshTransfers: number;
+    freshDistress: number;
     firstRun: boolean;
   };
 };
@@ -99,6 +101,7 @@ export async function runNightlyDigest(store: DigestStore = digestStore()): Prom
 
   let areasSwept = 0;
   let freshTransfers = 0;
+  let freshDistress = 0;
   for (const lead of areas) {
     let subject: Parcel | null = null;
     let transfers: Parcel[] = [];
@@ -122,6 +125,27 @@ export async function runNightlyDigest(store: DigestStore = digestStore()): Prom
           "."
       );
     }
+
+    // Tax distress: owners near this lead newly in the delinquency legal
+    // pipeline (suit/judgment/auction). Same seen-baseline dance.
+    let distress: TaxSaleRecord[] = [];
+    try {
+      distress = await taxSaleNear(subject.lat, subject.lon, SWEEP_RADIUS_M, 20);
+    } catch {
+      /* LGBS hiccup — skip distress for this area */
+    }
+    const freshD = distress.filter((d) => !seen.has(`ts:${d.hcadAccount}:${d.saleType}`));
+    for (const d of distress) seen.add(`ts:${d.hcadAccount}:${d.saleType}`);
+    for (const d of (firstRun ? freshD.slice(0, 1) : freshD.slice(0, 3))) {
+      freshDistress++;
+      bullets.push(
+        `Tax distress near ${shortAddr(lead.address)}: ${shortAddr(d.address)} is ${d.status.toLowerCase()}` +
+          (d.saleDate ? ` — auction ${monthYear(d.saleDate)}` : "") +
+          (d.minimumBid ? `, minimum bid ${money(d.minimumBid)}` : "") +
+          (d.appraisedValue ? ` (appraised ${money(d.appraisedValue)})` : "") +
+          "."
+      );
+    }
   }
 
   if (addedThisWeek.length) {
@@ -131,9 +155,12 @@ export async function runNightlyDigest(store: DigestStore = digestStore()): Prom
     );
   }
   if (!crmOk) bullets.push("The CRM wasn't reachable during this sweep — pipeline items may be missing.");
-  if (!bullets.length) bullets.push("Quiet night — no new recordings around your tracked leads, no pipeline changes.");
+  if (!bullets.length) bullets.push("Quiet night — no new recordings, no new tax distress around your tracked leads, no pipeline changes.");
   if (freshTransfers) {
     bullets.push("Deed dates are HCAD recordings, which trail the courthouse by weeks to months.");
+  }
+  if (freshDistress) {
+    bullets.push("Tax distress comes from the county collection firm's sale listings — suits and auctions only, not the full delinquent roll.");
   }
 
   const dateSpoken = new Date().toLocaleString("en-US", {
@@ -142,8 +169,14 @@ export async function runNightlyDigest(store: DigestStore = digestStore()): Prom
     day: "numeric",
     timeZone: "America/Chicago",
   });
-  const headline = freshTransfers
-    ? `${freshTransfers} fresh deed recording${freshTransfers === 1 ? "" : "s"} near your leads, ${hot.length} hot lead${hot.length === 1 ? "" : "s"} active.`
+  const moved = freshTransfers + freshDistress;
+  const headline = moved
+    ? [
+        freshTransfers ? `${freshTransfers} fresh deed${freshTransfers === 1 ? "" : "s"}` : "",
+        freshDistress ? `${freshDistress} new tax-distress flag${freshDistress === 1 ? "" : "s"}` : "",
+      ]
+        .filter(Boolean)
+        .join(", ") + ` near your leads. ${hot.length} hot lead${hot.length === 1 ? "" : "s"} active.`
     : `Quiet night. ${leads.length} active lead${leads.length === 1 ? "" : "s"}, ${hot.length} hot.`;
   const spoken = `Overnight digest for ${dateSpoken}. ${bullets.join(" ")}`;
 
@@ -157,6 +190,7 @@ export async function runNightlyDigest(store: DigestStore = digestStore()): Prom
       hotLeads: hot.length,
       areasSwept,
       freshTransfers,
+      freshDistress,
       firstRun,
     },
   };

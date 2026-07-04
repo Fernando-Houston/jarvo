@@ -411,6 +411,28 @@ should we pursue it?" → Claude chained property_lookup→verdict, map built
 parcel→flood(X)→ch42(4u)→comps, spoke "RED, and the reason is location,
 not the numbers" with receipts + honest framing. 559KB TTS.
 
+**✅ TAX DELINQUENCY CONNECT (2026-07-04, INTELLIGENCE-ROADMAP §5 #4):**
+Source found: the LGBS tax-sale API (taxsales.lgbs.com — Linebarger, the
+county's collection firm; ~365 Harris parcels in the legal pipeline, 135
+scheduled for the Aug-4 auction). Fields: 13-digit `account_nbr` (= HCAD),
+sale_type (SALE/RESALE/STRUCK OFF/FUTURE SALE), status, sale_date,
+minimum_bid, cause_nbr, point geometry; filters: `account_nbr=`, `in_bbox=`.
+HONESTY LINE (in every result): suits/judgments/auctions only — owners
+merely behind on taxes without a lawsuit do NOT appear. `tools/taxsale.ts`;
+tools `tax_sale_check(hcad_account)` + `tax_sale_radar(hcad_account,
+radius_m)` (pops distressed parcels onto the map, "tax auction 2026-08-04"
+notes); verdict gained a `distress` signal (green "motivated seller and a
+clock" — never downgrades); nightly digest sweeps distress near pipeline
+leads (seen-baseline `ts:` keys). Rules trigger /tax sale|delinquent|
+distress/ (radar when "near/around"). VERIFIED local (known FUTURE SALE
+account + clean test lead + 15-parcel Northside radar) and CLOUD E2E:
+"is 3106 Kirk's owner behind on taxes, any distress nearby?" → Claude
+chained lookup→check→radar, spotted the estate + tax suit combo AND that
+3116 Kirk NEXT DOOR is also in the pipeline; digest run in prod surfaced
+"Tax distress near 1133 Adele St: 807 E 32nd ½ St, min bid $39k". Watch:
+LGBS is an undocumented public API — if it changes shape, the tools degrade
+to spoken "couldn't reach the listings".
+
 **✅ GROUND LAYER + "WHERE IS THIS?" (2026-07-04):** tools/ground.ts — USGS NHD
 flowlines (named bayous) + TxDOT Roadways (IH/US/SH) around the focus, decimated
 polylines → new GroundVisual wire kind → constellation renders them as faint

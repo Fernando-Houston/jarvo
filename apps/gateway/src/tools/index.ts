@@ -17,6 +17,7 @@ import { cityOverlaysAt } from "./cityOverlays";
 import { groundAround } from "./ground";
 import { getLatestDigest, runNightlyDigest } from "./digest";
 import { composeVerdict } from "./verdict";
+import { taxSaleCheck, taxSaleNear, TAX_SALE_SOURCE_NOTE, type TaxSaleRecord } from "./taxsale";
 import type { CompsVisual, GroundVisual } from "@hvi/shared";
 import {
   checkLead,
@@ -162,6 +163,31 @@ export const toolSchemas = [
           description: `Statuses to include (default ["hot_lead","new"]). Valid: ${LEAD_STATUSES.join(", ")}`,
         },
       },
+    },
+  },
+  {
+    name: "tax_sale_check",
+    description:
+      "Check whether a parcel (by 13-digit HCAD account) is in Harris County's delinquent-tax legal pipeline: suit filed, judgment, or tax auction scheduled (with date and minimum bid). This is the strongest motivated-seller signal available. Source is the county collection firm's tax-sale listings — owners merely behind on taxes WITHOUT a lawsuit do not appear, so a miss doesn't prove taxes are current. Call when the user asks about taxes owed, delinquency, or tax sale status.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        hcad_account: { type: "string", description: "13-digit HCAD account number" },
+      },
+      required: ["hcad_account"],
+    },
+  },
+  {
+    name: "tax_sale_radar",
+    description:
+      "Motivated-seller radar: parcels near a subject (by 13-digit HCAD account) that are in the delinquent-tax legal pipeline — suits, judgments, scheduled auctions — each popped onto the map. Call when the user asks about distressed properties, tax sales, or delinquent owners nearby.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        hcad_account: { type: "string", description: "13-digit HCAD account of the subject parcel" },
+        radius_m: { type: "number", description: "Search radius in meters (default 1600, about a mile)" },
+      },
+      required: ["hcad_account"],
     },
   },
   {
@@ -579,6 +605,79 @@ export async function executeTool(
         })),
       });
     }
+    case "tax_sale_check": {
+      const account = String(input.hcad_account ?? "");
+      let rec: TaxSaleRecord | null;
+      try {
+        rec = await taxSaleCheck(account);
+      } catch (err) {
+        return JSON.stringify({ error: err instanceof Error ? err.message : String(err) });
+      }
+      if (!rec) {
+        return JSON.stringify({
+          hcad_account: account,
+          in_tax_sale_pipeline: false,
+          note: TAX_SALE_SOURCE_NOTE,
+        });
+      }
+      return JSON.stringify({
+        hcad_account: account,
+        in_tax_sale_pipeline: true,
+        sale_type: rec.saleType,
+        status: rec.status,
+        auction_date: rec.saleDate,
+        minimum_bid: rec.minimumBid,
+        lawsuit_cause_number: rec.causeNumber,
+        note: TAX_SALE_SOURCE_NOTE,
+      });
+    }
+    case "tax_sale_radar": {
+      const account = String(input.hcad_account ?? "");
+      const subject = await resolveParcel(ctx, account);
+      if (!subject) return JSON.stringify({ error: `No parcel found for HCAD ${account}` });
+      const radius = typeof input.radius_m === "number" && input.radius_m > 0 ? Math.min(input.radius_m, 5000) : 1600;
+      let found: TaxSaleRecord[];
+      try {
+        found = await taxSaleNear(subject.lat, subject.lon, radius);
+      } catch (err) {
+        return JSON.stringify({ error: err instanceof Error ? err.message : String(err) });
+      }
+      // Pop the closest few onto the map (hydrated from HCAD for real
+      // geometry), paced like the deal radar; focus returns home after.
+      const shown = found.slice(0, 5);
+      let popped = 0;
+      for (const rec of shown) {
+        try {
+          const parcel = await resolveParcel(ctx, rec.hcadAccount);
+          if (!parcel) continue;
+          ctx.parcels.set(parcel.hcadAccount, parcel);
+          ctx.memory.knownParcels.set(parcel.hcadAccount, parcel);
+          emitDecorated(ctx, [parcel], rec.saleDate ? `tax auction ${rec.saleDate}` : "tax suit filed");
+          popped++;
+          await new Promise((r) => setTimeout(r, 600));
+        } catch {
+          /* skip unhydratable record */
+        }
+      }
+      if (popped) emitDecorated(ctx, [subject]);
+      ctx.memory.lastAccount = subject.hcadAccount;
+      ctx.memory.lastMatches = 1;
+      return JSON.stringify({
+        subject_hcad: subject.hcadAccount,
+        radius_m: radius,
+        distressed_count: found.length,
+        distressed: found.slice(0, 10).map((r) => ({
+          address: r.address,
+          hcad_account: r.hcadAccount,
+          sale_type: r.saleType,
+          status: r.status,
+          auction_date: r.saleDate,
+          minimum_bid: r.minimumBid,
+          appraised_value: r.appraisedValue,
+        })),
+        note: TAX_SALE_SOURCE_NOTE,
+      });
+    }
     case "verdict": {
       const account = String(input.hcad_account ?? "");
       const parcel = await resolveParcel(ctx, account);
@@ -599,7 +698,8 @@ export async function executeTool(
       const flood = await sub("flood_check", { hcad_account: parcel.hcadAccount });
       const ch42 = await sub("chapter42_feasibility", { hcad_account: parcel.hcadAccount });
       const comps = await sub("comps", { hcad_account: parcel.hcadAccount });
-      const result = composeVerdict({ parcel, overlays, flood, ch42, comps });
+      const taxSale = await sub("tax_sale_check", { hcad_account: parcel.hcadAccount });
+      const result = composeVerdict({ parcel, overlays, flood, ch42, comps, taxSale });
       ctx.memory.lastAccount = parcel.hcadAccount;
       ctx.memory.lastMatches = 1;
       return JSON.stringify(result);

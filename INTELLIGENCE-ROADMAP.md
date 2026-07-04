@@ -203,6 +203,19 @@ zero. Architecture (NOT fine-tuning — retrieval with attribution):
 6. **Scoreboard:** log when atoms influence verdicts + deal outcomes → his
    hit rate becomes measurable; his best rules become provable.
 
+**Elicitation design (decided): natural surface, engineered underneath.**
+Experts can't enumerate rules but can't NOT correct mistakes — so Garza mode
+is an apprentice, not a questionnaire. Four rotating techniques, invisible:
+(1) CRITIQUE BAIT — Jarvo analyzes the parcel first, then "what did I miss?"
+(the workhorse; corrections = rules the data lacks); (2) CONTRAST PAIRS —
+"two identical-on-paper lots, is one better?" forces tacit discriminations;
+(3) WAR STORIES — "worst deal near here?", never interrupted, distilled
+afterward (one story ≈ five rules); (4) ANOMALY PROBES — when live data
+looks weird, ask him why. Conversational law: one question at a time, follow
+tangents, 15-min ride-along cap, card readbacks BATCHED at session end.
+Gap-driven over time: the KB knows its thin spots (e.g. nothing on Second
+Ward) and leans in when a deal lands there.
+
 Dangers avoided by this design: opinion/data blur (attribution), fossilized
 weights (no fine-tuning), unbounded prompts (retrieval), bad-take permanence
 (atoms are editable/deletable rows). Human note: position as legacy, get his

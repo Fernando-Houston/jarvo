@@ -51,6 +51,7 @@ const TOOL_LABELS: Record<string, string> = {
   city_overlays: "checking city overlays…",
   where_is_this: "reading the ground…",
   skip_trace: "tracing the owner…",
+  trace_entity_principal: "resolving the person behind the company…",
   log_call_outcome: "logging the call…",
   trace_top_candidates: "saving and tracing candidates…",
   hot_list: "reading the propensity rankings…",

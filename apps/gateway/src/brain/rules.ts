@@ -613,6 +613,38 @@ export function createRulesBrain(): Brain {
         return;
       }
 
+      // ── Trace the human behind an LLC ("trace whoever's behind it") ──
+      if (/(trace|reach|find|call).*(principal|behind (the |this |that )?(llc|company|entity|it)|whoever'?s? (really )?behind|operator|actual (owner|person)|real person)/i.test(userText)) {
+        if (!mem.lastAccount) {
+          say("Ask me about a property first, then I'll try to resolve the person behind the company.");
+          return;
+        }
+        events.onTool("trace_entity_principal", "start");
+        let ep;
+        try {
+          ep = JSON.parse(await executeTool("trace_entity_principal", { hcad_account: mem.lastAccount }, ctx));
+        } catch {
+          events.onTool("trace_entity_principal", "end");
+          say("That resolution hit a snag — try again in a moment.");
+          return;
+        }
+        events.onTool("trace_entity_principal", "end");
+        if (!ep.ok) {
+          say(String(ep.reason ?? "Couldn't resolve a person behind that company."));
+          return;
+        }
+        if (!ep.phones_found && !ep.emails_found) {
+          say(`I found ${ep.resolved_principal} behind that mailbox, but the trace came up empty on them. The letter's the play.`);
+          return;
+        }
+        say(
+          `Behind the company, the mailbox points to ${ep.resolved_principal}${ep.principal_controls_parcels > 1 ? `, who controls ${ep.principal_controls_parcels} parcels from there` : ""}. Traced them: ${ep.phones_found} number${ep.phones_found === 1 ? "" : "s"}${ep.emails_found ? ` and ${ep.emails_found} email${ep.emails_found === 1 ? "" : "s"}` : ""}, on the card now.`
+        );
+        say("Fair warning: that's inferred from a shared mailing address, not confirmed — treat it as a strong lead and check who you've got when they pick up.");
+        if (ep.mock_test_data) say("And that ran on mock test data, not the real provider.");
+        return;
+      }
+
       // ── Skip trace ("trace the owner", "trace the top three") — CRM-first,
       // provider only when the CRM has nothing, write-back into the lead. ──
       if (/skip.?trace|\btrace\b/i.test(userText)) {
@@ -684,7 +716,7 @@ export function createRulesBrain(): Brain {
         if (!s.phones_found && !s.emails_found) {
           say(
             s.entity_owner
-              ? `The owner of record is a company, and a person trace can't touch a company — no lookup was charged. Say "who really owns this" and I'll chase the mailbox trail; when a human name surfaces, say trace it again.`
+              ? `The owner of record is a company, and a person trace can't touch a company — no lookup was charged. Say "trace whoever's behind it" and I'll try to resolve the human from the mailbox trail.`
               : `${s.provider} came up empty on this owner — no numbers, no emails. The letter is the play here.`
           );
           return;

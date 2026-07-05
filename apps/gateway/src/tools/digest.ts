@@ -59,6 +59,9 @@ export type Digest = {
     firstRun: boolean;
     /** High-propensity non-lead parcels stored for the "trace the top N" offer. */
     traceCandidates?: number;
+    /** Reachability of each external source this sweep — "quiet" is only
+     *  trustworthy when these are "ok". */
+    sourceHealth?: { hcad: string; lgbs: string; crm: string };
   };
 };
 
@@ -146,17 +149,24 @@ export async function runNightlyDigest(store: DigestStore = digestStore()): Prom
   let areasSwept = 0;
   let freshTransfers = 0;
   let freshDistress = 0;
+  // Source-health canaries: count attempts vs failures per external source so
+  // the digest can distinguish a genuinely quiet night from a BLIND one (a
+  // source was down). HCAD went fully down during testing 2026-07-05 — a
+  // silent "quiet night" then would have been a lie.
+  const health = { hcadTry: 0, hcadFail: 0, lgbsTry: 0, lgbsFail: 0 };
   /** Hydrated area subjects + their tax-distress accounts, reused by the
    *  propensity scan below so it costs no extra HCAD/LGBS calls per signal. */
   const sweptAreas: Array<{ leadAddress: string | null; subject: Parcel; distressAccounts: Set<string> }> = [];
   for (const lead of areas) {
     let subject: Parcel | null = null;
     let transfers: Parcel[] = [];
+    health.hcadTry++;
     try {
       subject = await lookupByAccount(lead.hcadAccount!);
       if (!subject) continue;
       transfers = await lookupRecentTransfers(subject, SWEEP_RADIUS_M, 8);
     } catch {
+      health.hcadFail++;
       continue; // HCAD hiccup on one area shouldn't sink the digest
     }
     areasSwept++;
@@ -176,9 +186,11 @@ export async function runNightlyDigest(store: DigestStore = digestStore()): Prom
     // Tax distress: owners near this lead newly in the delinquency legal
     // pipeline (suit/judgment/auction). Same seen-baseline dance.
     let distress: TaxSaleRecord[] = [];
+    health.lgbsTry++;
     try {
       distress = await taxSaleNear(subject.lat, subject.lon, SWEEP_RADIUS_M, 20);
     } catch {
+      health.lgbsFail++;
       /* LGBS hiccup — skip distress for this area */
     }
     sweptAreas.push({
@@ -266,8 +278,25 @@ export async function runNightlyDigest(store: DigestStore = digestStore()): Prom
       `Pipeline: ${addedThisWeek.length} lead${addedThisWeek.length === 1 ? "" : "s"} added this week — newest ${shortAddr(newest.address)}${newest.status ? `, marked ${newest.status.replace(/_/g, " ")}` : ""}.`
     );
   }
-  if (!crmOk) bullets.push("The CRM wasn't reachable during this sweep — pipeline items may be missing.");
-  if (!bullets.length) bullets.push("Quiet night — no new recordings, no new tax distress around your tracked leads, no pipeline changes.");
+  // ── Health canaries: a source that failed EVERY attempt was down, not
+  // quiet — say so, loudly and first, so nobody trusts a blind sweep. A
+  // partial failure (some areas errored) gets a softer heads-up.
+  const hcadDown = health.hcadTry > 0 && health.hcadFail === health.hcadTry;
+  const lgbsDown = health.lgbsTry > 0 && health.lgbsFail === health.lgbsTry;
+  const hcadFlaky = !hcadDown && health.hcadFail > 0;
+  const lgbsFlaky = !lgbsDown && health.lgbsFail > 0;
+  const canaries: string[] = [];
+  if (hcadDown) canaries.push("Harris County records (HCAD) were unreachable all through this sweep — I could not check for new deeds, so a quiet report tonight means blind, not clear.");
+  if (lgbsDown) canaries.push("The county tax-sale listings were unreachable this sweep — no distress could be checked tonight.");
+  if (hcadFlaky) canaries.push(`HCAD was flaky tonight — ${health.hcadFail} of ${health.hcadTry} area lookups failed, so some new deeds may be missing.`);
+  if (lgbsFlaky) canaries.push(`The tax-sale listings were flaky tonight — ${health.lgbsFail} of ${health.lgbsTry} checks failed.`);
+  if (!crmOk) canaries.push("The CRM wasn't reachable during this sweep — pipeline items may be missing.");
+  // Canaries lead the brief when present.
+  if (canaries.length) bullets.unshift(...canaries);
+  const allSourcesBlind = hcadDown && (lgbsDown || health.lgbsTry === 0) && !crmOk;
+  if (!bullets.length) {
+    bullets.push("Quiet night — no new recordings, no new tax distress around your tracked leads, no pipeline changes.");
+  }
   if (freshTransfers) {
     bullets.push("Deed dates are HCAD recordings, which trail the courthouse by weeks to months.");
   }
@@ -282,14 +311,20 @@ export async function runNightlyDigest(store: DigestStore = digestStore()): Prom
     timeZone: "America/Chicago",
   });
   const moved = freshTransfers + freshDistress;
-  const headline = moved
-    ? [
-        freshTransfers ? `${freshTransfers} fresh deed${freshTransfers === 1 ? "" : "s"}` : "",
-        freshDistress ? `${freshDistress} new tax-distress flag${freshDistress === 1 ? "" : "s"}` : "",
-      ]
-        .filter(Boolean)
-        .join(", ") + ` near your leads. ${hot.length} hot lead${hot.length === 1 ? "" : "s"} active.`
-    : `Quiet night. ${leads.length} active lead${leads.length === 1 ? "" : "s"}, ${hot.length} hot.`;
+  const sourcesDown = [hcadDown && "HCAD", lgbsDown && "tax listings", !crmOk && "CRM"].filter(Boolean);
+  const headline = allSourcesBlind
+    ? "Data sources were down overnight — tonight's sweep is blind, not quiet."
+    : moved
+      ? [
+          freshTransfers ? `${freshTransfers} fresh deed${freshTransfers === 1 ? "" : "s"}` : "",
+          freshDistress ? `${freshDistress} new tax-distress flag${freshDistress === 1 ? "" : "s"}` : "",
+        ]
+          .filter(Boolean)
+          .join(", ") + ` near your leads. ${hot.length} hot lead${hot.length === 1 ? "" : "s"} active.`
+      : sourcesDown.length
+        // Don't sell a "quiet night" when a source was blind — flag it in the push.
+        ? `Quiet, but ${sourcesDown.join(" & ")} ${sourcesDown.length === 1 ? "was" : "were"} down — may be blind. ${hot.length} hot lead${hot.length === 1 ? "" : "s"}.`
+        : `Quiet night. ${leads.length} active lead${leads.length === 1 ? "" : "s"}, ${hot.length} hot.`;
   const spoken = `Overnight digest for ${dateSpoken}. ${bullets.join(" ")}`;
 
   const digest: Digest = {
@@ -305,6 +340,11 @@ export async function runNightlyDigest(store: DigestStore = digestStore()): Prom
       freshDistress,
       firstRun,
       traceCandidates: traceCandidates.length,
+      sourceHealth: {
+        hcad: hcadDown ? "down" : hcadFlaky ? "flaky" : "ok",
+        lgbs: lgbsDown ? "down" : lgbsFlaky ? "flaky" : "ok",
+        crm: crmOk ? "ok" : "down",
+      },
     },
   };
 

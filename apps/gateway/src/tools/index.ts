@@ -24,7 +24,7 @@ import { groundAround } from "./ground";
 import { digestStore, getLatestDigest, getTraceCandidates, runNightlyDigest } from "./digest";
 import { violationHistory, VIOLATIONS_SOURCE_NOTE } from "./violations";
 import { PROPENSITY_FLOOR } from "./propensityScore";
-import { skipTraceProvider } from "../providers/skiptrace";
+import { skipTraceProvider, isEntityName } from "../providers/skiptrace";
 import { composeVerdict } from "./verdict";
 import { taxSaleCheck, taxSaleNear, TAX_SALE_SOURCE_NOTE, type TaxSaleRecord } from "./taxsale";
 import type { CompsVisual, GroundVisual, DocumentVisual } from "@hvi/shared";
@@ -437,6 +437,18 @@ export const toolSchemas = [
       properties: {
         hcad_account: { type: "string", description: "13-digit HCAD account of the lead to trace" },
         force: { type: "boolean", description: "Re-trace even though numbers are already on file (explicit user ask only)" },
+      },
+      required: ["hcad_account"],
+    },
+  },
+  {
+    name: "trace_entity_principal",
+    description:
+      "When a parcel's owner of record is an LLC/company (which a person skip-trace can't touch), resolve the HUMAN behind it and trace them: finds people who receive mail at the SAME address as the entity (the operator/principal pattern), traces the most-connected one, and writes the numbers onto the lead — clearly attributed as the inferred principal. Guards against registered-agent mail-drops (won't guess when the mailbox is a shared agent farm). The parcel must already be a CRM lead. Costs a trace. Call when the user asks to reach whoever is behind an LLC, trace the principal/operator, or 'who can I actually call'. Speak the inference chain honestly.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        hcad_account: { type: "string", description: "13-digit HCAD account of the entity-owned lead" },
       },
       required: ["hcad_account"],
     },
@@ -1567,6 +1579,105 @@ async function executeToolInner(
         ...(writeSummary ?? {}),
         ...(writeNote ? { write_note: writeNote } : {}),
         compliance: "Manual tap-to-dial calls only, 8am–9pm local time; DNC-flagged numbers render locked and must never be dialed. No texting.",
+        note: traced.note,
+      });
+    }
+    case "trace_entity_principal": {
+      const account = String(input.hcad_account ?? "");
+      const parcel = await resolveParcel(ctx, account);
+      if (!parcel) return JSON.stringify({ error: `No parcel found for HCAD ${account}` });
+      if (!isEntityName(parcel.ownerName)) {
+        return JSON.stringify({ ok: false, reason: `${parcel.ownerName ?? "This owner"} is already a person — just trace it directly.` });
+      }
+      const lead = await findLeadByAccount(account);
+      if (!lead) {
+        return JSON.stringify({ ok: false, needs_lead: true, address: parcel.address, reason: `${parcel.address?.split(",")[0] ?? "That parcel"} isn't a CRM lead yet — save it first.` });
+      }
+      const mailStreet = parcel.mailingAddress?.split(",")[0] ?? null;
+      const mailZip = parcel.mailingAddress?.match(/\b(\d{5})(-\d{4})?\s*$/)?.[1] ?? null;
+      if (!mailStreet) {
+        return JSON.stringify({ ok: false, reason: "No mailing address on record for this entity — can't resolve a principal." });
+      }
+      let atMailbox: Parcel[];
+      try {
+        atMailbox = await lookupByMailAddress(mailStreet, mailZip, 100);
+      } catch (err) {
+        return JSON.stringify({ ok: false, reason: `Harris County records didn't answer: ${err instanceof Error ? err.message : err}` });
+      }
+      // Distinct owners at this mailbox; split people from entities.
+      const owners = new Map<string, { name: string; count: number; parcel: Parcel }>();
+      for (const p of atMailbox) {
+        const nm = p.ownerName?.split(";")[0].trim();
+        if (!nm) continue;
+        const cur = owners.get(nm.toUpperCase());
+        if (cur) cur.count++;
+        else owners.set(nm.toUpperCase(), { name: nm, count: 1, parcel: p });
+      }
+      const people = [...owners.values()].filter((o) => !isEntityName(o.name));
+      const entityCount = owners.size - people.length;
+      // Registered-agent / mail-drop guard: a mailbox fronting many distinct
+      // entities is an agent farm — a person there is unrelated, don't guess.
+      if (entityCount >= 6 && people.length <= 1) {
+        return JSON.stringify({
+          ok: false,
+          mail_drop: true,
+          distinct_entities_at_mailbox: entityCount,
+          reason: `That mailbox fronts ${entityCount} different companies — it's a registered-agent or mail-drop address, not a home. Can't infer a real person from it. The letter is the honest channel here.`,
+        });
+      }
+      if (!people.length) {
+        return JSON.stringify({
+          ok: false,
+          no_person_found: true,
+          reason: "Everyone receiving mail at this address is also a company — no human surfaces from the mailbox trail. Letter is the channel.",
+        });
+      }
+      // Best principal = the person controlling the most parcels from here.
+      people.sort((a, b) => b.count - a.count);
+      const principal = people[0];
+      const provider = skipTraceProvider();
+      let traced;
+      try {
+        traced = await provider.trace(principal.name, principal.parcel.mailingAddress ?? parcel.mailingAddress, principal.parcel.address);
+      } catch (err) {
+        return JSON.stringify({ ok: false, principal: principal.name, reason: `Trace of the principal failed: ${err instanceof Error ? err.message : err}` });
+      }
+      if (!traced.phones.length && !traced.emails.length) {
+        return JSON.stringify({ ok: true, principal: principal.name, phones_found: 0, emails_found: 0, note: `Found ${principal.name} behind the mailbox, but the trace came up empty on them. ${traced.note}` });
+      }
+      // Write onto the ENTITY lead, but attribute every number to the inferred
+      // principal so the team knows it's a mailbox inference, not the LLC itself.
+      let written = false;
+      let writeSummary: { phonesAdded: number; phonesAlreadyKnown: number; emailsAdded: number } | null = null;
+      if (provider.mock && account !== MOCK_WRITE_TEST_LEAD) {
+        // mock guard — never write fabricated data off the test lead
+      } else {
+        try {
+          writeSummary = await writeTracedContacts(lead.id, {
+            phones: traced.phones.map((p) => ({ ...p, contactName: `${principal.name} (mailbox principal)` })),
+            emails: traced.emails,
+            provider: `${provider.name}:principal`,
+          });
+          written = true;
+        } catch {
+          /* trace still reported */
+        }
+      }
+      await refreshLeadContacts(ctx, account);
+      return JSON.stringify({
+        ok: true,
+        entity_owner: parcel.ownerName,
+        resolved_principal: principal.name,
+        principal_controls_parcels: principal.count,
+        people_at_mailbox: people.length,
+        entities_at_mailbox: entityCount,
+        mock_test_data: provider.mock,
+        phones_found: traced.phones.length,
+        emails_found: traced.emails.length,
+        written_to_crm: written,
+        ...(writeSummary ?? {}),
+        confidence_caveat: "the principal is INFERRED from a shared mailing address, not confirmed ownership — treat as a lead, verify on the call",
+        compliance: "Manual dial only, 8am–9pm, honor any do-not-call ask. Not DNC-screened.",
         note: traced.note,
       });
     }

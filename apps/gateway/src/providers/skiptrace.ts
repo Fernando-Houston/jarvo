@@ -64,11 +64,12 @@ export type SkipTraceProvider = {
 //  (CHANGE HAPPENS CDC, PROJECT ROW HOUSES, HOLMAN ST BAPTIST CHUR, KS
 //  HOUSTON DEVELOPMENT; HOLDINGS CORPORATION).
 const ENTITY_PREFIX =
-  /\b(LLC|CORP|CHUR|IGLESIA|MINISTR|BAPTIST|METHODIST|CATHOLIC|DIOCESE|SYNAGOG|SCHOOL|ACADEM|COLLEGE|UNIVERSIT|TRUST|ESTATE|PARTNER|PROPERT|HOMES|HOUSES|HOUSING|DEVELOP|HOLDING|INVEST|VENTURE|REALT|BUILDER|CAPITAL|MANAGEMENT|ENTERPRIS|COMPAN|ASSOC|LENDING|FUNDING|AUTHORIT|FOUNDATION|COALITION|COUNCIL|DISTRICT|AGENC|MINISTRIES|NONPROFIT|INCORP)/i;
+  /\b(LLC|CORP|CHUR|IGLESIA|MINISTR|BAPTIST|METHODIST|CATHOLIC|DIOCESE|SYNAGOG|SCHOOL|ACADEM|COLLEGE|UNIVERSIT|TRUST|ESTATE|PARTNER|PROPERT|HOMES|HOUSES|HOUSING|HOMEOWNER|DEVELOP|HOLDING|INVEST|VENTURE|REALT|BUILDER|CAPITAL|MANAGEMENT|ENTERPRIS|COMPAN|ASSOC|LENDING|FUNDING|AUTHORIT|FOUNDATION|COALITION|COUNCIL|DISTRICT|AGENC|MINISTRIES|NONPROFIT|INCORP)/i;
 const ENTITY_WORD =
-  /\b(INC|LTD|LP|L\.?L\.?C|L\.?P|CO|CDC|USA|MUD|FUND|BANK|GROUP|CENTER|CENTRE|SOCIETY|TEMPLE|MOSQUE|COUNTY|MGMT|ASSN|LLP|PLLC|PC|CITY OF|STATE OF|UNITED STATES)\b/i;
+  /\b(INC|LTD|LP|L\.?L\.?C|L\.?P|CO|CDC|HOA|USA|MUD|FUND|BANK|GROUP|CENTER|CENTRE|SOCIETY|TEMPLE|MOSQUE|COUNTY|MGMT|ASSN|LLP|PLLC|PC|CITY OF|STATE OF|UNITED STATES)\b/i;
 
-function isEntityName(owner: string): boolean {
+export function isEntityName(owner: string | null): boolean {
+  if (!owner) return false;
   return ENTITY_PREFIX.test(owner) || ENTITY_WORD.test(owner);
 }
 
@@ -81,11 +82,15 @@ function splitOwnerName(owner: string): { first: string | null; last: string; en
   if (isEntityName(owner)) {
     return { first: null, last: cleaned, entity: true };
   }
-  const noComma = cleaned.replace(",", " ").replace(/\s+/g, " ");
-  const parts = noComma.split(" ");
+  // HCAD joins co-owners with "&" ("VANALLAN PATRICIA& ; CURTIS …") — cut at
+  // the first "&" (trace the primary owner) and strip any char that isn't part
+  // of a name, so stray "&"/punctuation never reaches the provider (it 400s).
+  const clean = (s: string) => s.replace(/[^A-Za-z' -]/g, " ").replace(/\s+/g, " ").trim();
+  const primary = clean(cleaned.split("&")[0]);
+  const parts = primary.split(" ").filter(Boolean);
   // HCAD style is LAST FIRST [MIDDLE]
   if (parts.length >= 2) return { first: parts[1], last: parts[0], entity: false };
-  return { first: null, last: cleaned, entity: false };
+  return { first: null, last: primary || cleaned, entity: false };
 }
 
 /** Parse an HCAD mailing string into clean parts for the provider payload.

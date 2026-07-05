@@ -418,6 +418,36 @@ throttling (6× burst matched 6/6), name-order. Person Search endpoint
 8: +2 reachable owners recovered, 4 wasted calls killed, 2 honest misses.
 Deployed; unit-tested against every real problem string.
 
+**✅ FULL PIPELINE ENRICHMENT SWEEP + ENTITY-PRINCIPAL CHAIN + DIGEST
+CANARIES (2026-07-05):** worked the whole "what next" list end to end.
+(1) SWEEP — traced every contact-less lead in the pipeline through the
+production tool: 396 swept, 275 entities skipped FREE, 117 person traces,
+**82 matched (70%) → 375 phones + 276 emails written** across 82 real
+leads (verified persisted: 85 leads now carry Enformion numbers). No
+status flips (user hadn't approved). Two more parser bugs found +
+fixed mid-sweep: an "&" co-owner separator leaked into the FirstName and
+400'd ("VANALLAN PATRICIA&; …") — now cut at "&" + strip non-name chars
+(recovered 34 Hackberry: 3ph/3em); and an HOA name ("MARBELLA AT BAER
+HOMEOWNERS") read as a person — added HOMEOWNER/HOA to entity detection.
+(2) ENTITY-PRINCIPAL CHAIN (`trace_entity_principal`, NEXT-HORIZON §4
+"task-handoff"-adjacent) — when an owner is an LLC, resolves the human
+who receives mail at the same address (the operator pattern), traces the
+most-connected one, writes onto the lead attributed as "(mailbox
+principal)". Guards against registered-agent mail-drops (≥6 distinct
+entities + ≤1 person → refuse and say so). Rules trigger "trace whoever's
+behind it"; plain skip_trace on an entity now points here. CLOUD E2E:
+2828 Drew Development LLC → Ram Wadhwa (operator, 7 entities at the
+mailbox) → 5 phones written, spoken with the inference + compliance
+caveats. (3) DIGEST HEALTH CANARIES (NEXT-HORIZON §6 item 4) — the
+nightly sweep now counts HCAD/LGBS/CRM attempts vs failures; a source
+that failed EVERY attempt is reported as DOWN ("quiet means blind, not
+clear"), a partial failure as "flaky", and the push headline refuses to
+sell a false "quiet night" when a source was blind. `stats.sourceHealth`
+carries ok/flaky/down per source. Verified: healthy run reports all "ok"
+with no false alarms; down/flaky/blind branches unit-tested; cloud E2E
+spoke source status honestly. All deployed (worker + jarvo.pages.dev),
+typechecked, committed.
+
 **✅ PROPENSITY ENGINE v1 (2026-07-05, NEXT-HORIZON §6 item 2):** the county
 funnel is live. `tools/propensityScore.ts` — ONE shared transparent
 weighted sum (teardown ratio <15% on ≥3ksf lot +40 · absentee +25 · 15yr+

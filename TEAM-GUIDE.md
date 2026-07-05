@@ -39,7 +39,8 @@
 
 **Reach the owner**
 - Pull up any lead and the card shows **REACH THE OWNER**: tap a number to dial, bad numbers shown struck-through so nobody redials a wrong number. Ask "what's the owner's number?" and Jarvo reads out the primary.
-- "**Trace it**" / "skip trace the owner" — hunts down phone numbers + emails and files them on the lead. Checks the CRM first so we never pay for a number we already have; "trace it **again**" forces a fresh pull. (Until a real trace provider is connected it runs on clearly-labeled mock test data.)
+- "**Trace it**" / "skip trace the owner" — hunts down phone numbers + emails and files them on the lead. Checks the CRM first so we never pay for a number we already have; "trace it **again**" forces a fresh pull. (Live on EnformionGO.)
+- "**Trace whoever's behind it**" — when the owner is an LLC, resolves the human operator from the mailbox trail and traces them (marked as inferred — verify on the call). Won't guess when the address is a registered-agent mail-drop.
 - After a call: "**Log that call — no answer**" / "**wrong number**" / "**talked to them**" — updates the number on the lead so every call makes the data smarter. Wrong numbers never come up to dial again.
 - Numbers on the **Do-Not-Call registry** show locked with "DO NOT CALL" — on the card and as DO-NOT-DIAL lines on call sheets. Calls are manual dial only, 8am–9pm. No texting, ever (TCPA).
 

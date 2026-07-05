@@ -479,17 +479,28 @@ export class HviSessionDO {
           } catch {
             /* socket already closed */
           }
-          // Mirror the pending-document state into DO storage so a draft on
-          // the user's screen survives hibernation (the Session object dies;
-          // the storage doesn't). Cheap prefix sniff, JSON only on match.
+          // Mirror session-context essentials into DO storage so they survive
+          // hibernation (the Session object dies; the storage doesn't):
+          // the pending document, and the parcel in focus (tools that pop
+          // satellites re-emit the subject last, so the last parcel visual
+          // is the focus). Cheap prefix sniff, JSON only on match.
           if (typeof data === "string" && data.startsWith('{"type":"visual"')) {
             try {
-              const msg = JSON.parse(data) as { visual?: { kind?: string; filed?: boolean } };
+              const msg = JSON.parse(data) as {
+                visual?: { kind?: string; filed?: boolean; hcadAccount?: string; address?: string | null };
+              };
               if (msg.visual?.kind === "document") {
                 this.state.waitUntil(
                   msg.visual.filed
                     ? this.state.storage.delete("pendingDoc")
                     : this.state.storage.put("pendingDoc", msg.visual)
+                );
+              } else if (msg.visual?.kind === "parcel" && msg.visual.hcadAccount) {
+                this.state.waitUntil(
+                  this.state.storage.put("lastFocus", {
+                    hcadAccount: msg.visual.hcadAccount,
+                    address: msg.visual.address ?? null,
+                  })
                 );
               }
             } catch {
@@ -498,17 +509,23 @@ export class HviSessionDO {
           }
         },
       };
-      // A reborn session inherits the draft that was pending when the DO slept.
-      const stored = await this.state.storage.get<{
-        docType: "letter" | "call_sheet" | "offer_summary";
-        title: string;
-        body: string;
-        hcadAccount: string;
-        address: string | null;
-      }>("pendingDoc");
+      // A reborn session inherits what was on the user's screen when the DO
+      // slept: the pending draft and the parcel in focus.
+      const [stored, lastFocus] = await Promise.all([
+        this.state.storage.get<{
+          docType: "letter" | "call_sheet" | "offer_summary";
+          title: string;
+          body: string;
+          hcadAccount: string;
+          address: string | null;
+        }>("pendingDoc"),
+        this.state.storage.get<{ hcadAccount: string; address: string | null }>("lastFocus"),
+      ]);
       this.session = new Session(wsLike, {
         user: this.user,
         pendingDoc: stored ?? undefined,
+        focus: lastFocus ?? undefined,
+        onDocDiscard: () => this.state.waitUntil(this.state.storage.delete("pendingDoc")),
         onShare: (visual: ParcelVisual) => {
           if (this.shared.has(visual.hcadAccount)) return;
           this.shared.add(visual.hcadAccount);
@@ -530,6 +547,21 @@ export class HviSessionDO {
 
   async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
     applyEnv(this.env);
+    // The client's focus replay is the ONLY context signal on a quiet
+    // connection (it emits no visuals for the outbound sniff to mirror) —
+    // store it inbound so hibernation can't orphan "it"/"the owner".
+    if (typeof message === "string" && message.startsWith('{"type":"focus"')) {
+      try {
+        const msg = JSON.parse(message) as { hcadAccount?: string };
+        if (msg.hcadAccount) {
+          this.state.waitUntil(
+            this.state.storage.put("lastFocus", { hcadAccount: msg.hcadAccount, address: null })
+          );
+        }
+      } catch {
+        /* malformed — the session handler will ignore it too */
+      }
+    }
     const session = await this.ensureSession(ws);
     if (typeof message === "string") session.handleText(message);
     else session.handleAudio(new Uint8Array(message));

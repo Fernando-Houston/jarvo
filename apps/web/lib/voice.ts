@@ -104,7 +104,21 @@ class VoiceClient {
     this.connectRoom();
     this.levelLoop();
     this.restoreSavedMap();
+    this.restorePendingDoc();
     void this.loadDigestBanner();
+  }
+
+  /** Bring back an unfiled draft after a refresh — the server-side pending
+   *  copy (or the payload the File button carries) keeps filing honest. */
+  private restorePendingDoc() {
+    try {
+      const raw = sessionStorage.getItem("hvi-doc-v1");
+      if (!raw) return;
+      const doc = JSON.parse(raw) as import("@hvi/shared").DocumentVisual;
+      if (doc?.kind === "document" && !doc.filed) useHvi.getState().setDoc(doc);
+    } catch {
+      /* corrupted — ignore */
+    }
   }
 
   /** Morning ritual: if a fresh overnight digest exists and hasn't been
@@ -195,6 +209,7 @@ class VoiceClient {
   // ── The shared war room: teammates' focus parcels join this map live ─────
   private roomWs: WebSocket | null = null;
   private roomTimer: ReturnType<typeof setTimeout> | null = null;
+  private teamNoteTimer: ReturnType<typeof setTimeout> | null = null;
 
   private connectRoom() {
     const base = process.env.NEXT_PUBLIC_GATEWAY_URL || "ws://localhost:8787";
@@ -238,10 +253,12 @@ class VoiceClient {
           /* storage blocked */
         }
         // Toast only for LIVE events; a backlog replay shouldn't strobe.
+        // One timer — a rapid second event extends rather than truncates.
         if (e.at && Date.now() - e.at < 15_000) {
           const s = useHvi.getState();
           s.setTeamNote(`${e.user ?? "a teammate"} · ${e.visual.address?.split(",")[0] ?? e.visual.hcadAccount}`);
-          setTimeout(() => useHvi.getState().setTeamNote(null), 6000);
+          if (this.teamNoteTimer) clearTimeout(this.teamNoteTimer);
+          this.teamNoteTimer = setTimeout(() => useHvi.getState().setTeamNote(null), 6000);
         }
       } catch {
         /* malformed frame — ignore */

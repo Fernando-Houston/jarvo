@@ -54,6 +54,8 @@ export class Session {
   /** Multiplayer hook: called with each FOCUS parcel visual (not satellite
    *  pops) so the host can fan it out to the team room. */
   private onShare: ((v: ParcelVisual) => void) | null = null;
+  /** Host hook: the pending draft was discarded — clear persisted copies. */
+  private onDocDiscard: (() => void) | null = null;
 
   constructor(
     ws: WsLike,
@@ -63,11 +65,22 @@ export class Session {
       /** Seed for a session reborn after DO hibernation — the draft that was
        *  on the user's screen when the object went to sleep. */
       pendingDoc?: SessionMemory["pendingDoc"];
+      /** Called when the user discards the pending draft, so the host can
+       *  clear any persisted copy (the DO storage mirror). */
+      onDocDiscard?: () => void;
+      /** Seed for a session reborn after DO hibernation: what was in focus
+       *  when the object went to sleep, so "it" keeps meaning something. */
+      focus?: { hcadAccount: string; address: string | null };
     } = {}
   ) {
     this.ws = ws;
     this.onShare = opts.onShare ?? null;
+    this.onDocDiscard = opts.onDocDiscard ?? null;
     if (opts.pendingDoc) this.memory.pendingDoc = opts.pendingDoc;
+    if (opts.focus?.hcadAccount) {
+      this.setFocus(opts.focus.hcadAccount);
+      if (opts.focus.address) this.focusNote = `${opts.focus.address} (HCAD ${opts.focus.hcadAccount})`;
+    }
     if (opts.user) {
       // Named session (?u=fernando): attribution for notes and logs.
       this.memory.user = opts.user.slice(0, 40);
@@ -140,6 +153,7 @@ export class Session {
   private async handleDocAction(action: "file" | "discard", doc: SessionMemory["pendingDoc"]) {
     if (action === "discard") {
       this.memory.pendingDoc = null;
+      this.onDocDiscard?.();
       return;
     }
     if (!this.memory.pendingDoc && doc?.body && doc.hcadAccount) {
@@ -230,10 +244,13 @@ export class Session {
     const emitVisual = (v: ParcelVisual | CompsVisual | GroundVisual | DocumentVisual) => {
       if (abort.signal.aborted) return;
       this.send({ type: "visual", visual: v });
-      // Share only what this session is FOCUSED on — satellite pops (radar,
-      // briefing, portfolios) would flood teammates' small maps.
-      if (v.kind === "parcel" && v.hcadAccount === this.memory.lastAccount) {
-        this.onShare?.(v);
+      if (v.kind === "parcel") {
+        // Real parcel context now lives in the brain's history — the
+        // restored-focus note has done its job.
+        this.focusNote = null;
+        // Share only what this session is FOCUSED on — satellite pops (radar,
+        // briefing, portfolios) would flood teammates' small maps.
+        if (v.hcadAccount === this.memory.lastAccount) this.onShare?.(v);
       }
     };
 
@@ -271,11 +288,13 @@ export class Session {
     abort.signal.addEventListener("abort", () => tts?.abort());
 
     const toolCtx = { parcels, memory: this.memory, emitVisual };
-    // Resumed session: give the brain the on-screen context exactly once.
+    // Resumed session: keep handing the brain the on-screen context until a
+    // parcel tool actually runs (one turn isn't enough — the first utterance
+    // after a reload might be "file it" or small talk, and the NEXT one still
+    // needs to know what "the owner" means).
     const effectiveText = this.focusNote
-      ? `(Context: the property currently shown on the user's screen is ${this.focusNote} — "it"/"this one" refers to that parcel.) ${userText}`
+      ? `(Context: the property currently shown on the user's screen is ${this.focusNote} — "it"/"this one"/"the owner" refer to that parcel.) ${userText}`
       : userText;
-    this.focusNote = null;
     try {
       await this.brain.run(effectiveText, events, toolCtx, abort.signal);
     } catch (err) {

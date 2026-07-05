@@ -128,7 +128,17 @@ export const useHvi = create<HviStore>((set) => ({
   setActivity: (activity) => set({ activity }),
   setDigest: (digest) => set({ digest }),
   setTeamNote: (teamNote) => set({ teamNote }),
-  setDoc: (doc) => set({ doc }),
+  setDoc: (doc) => {
+    // Unfiled drafts survive a refresh (the server still holds them pending);
+    // filed or dismissed ones don't need to.
+    try {
+      if (doc && !doc.filed) sessionStorage.setItem("hvi-doc-v1", JSON.stringify(doc));
+      else sessionStorage.removeItem("hvi-doc-v1");
+    } catch {
+      /* storage blocked — panel still works in-memory */
+    }
+    set({ doc });
+  },
   dismissDigest: () =>
     set((s) => {
       // Remember per digest-generation so it stays gone for the day.

@@ -272,6 +272,32 @@ REAL BROWSER: call sheet drafted → File clicked → "FILED TO CRM ✓" green,
 zero console errors. Redraft-with-changes = just ask again (new guidance
 overwrites pendingDoc). CRM writes tested ONLY on 505 Westcott.
 
+**✅ QA SWEEP + HIBERNATION-AMNESIA FIX (2026-07-05):** full audit after the
+two-day build-out. Trigger-order collision check across all ~24 rules-brain
+blocks: clean. Fixed: (1) **discarded drafts could resurrect** — discard
+cleared session memory but not the DO-storage mirror; `onDocDiscard` hook
+now deletes it. (2) rules "file it" only matched at utterance start —
+loosened to word-boundary ("looks good, file it"). (3) Node dev gateway
+created phantom voice Sessions for /room sockets — now a silent sink.
+(4) team-toast timers stacked — single reset timer. (5) unfiled drafts now
+survive a page refresh (sessionStorage `hvi-doc-v1`; the File button carries
+the payload so filing works on the fresh connection). (6) THE BIG ONE —
+**DO hibernation amnesia**: an idle minute mid-session evicted the Session;
+the reborn one forgot lastAccount/focusNote entirely, so "draft a letter to
+the owner" got "which property?" with the parcel ON SCREEN. Fixed at three
+layers: focusNote now persists across turns until a parcel tool actually
+runs (was consumed after one turn); the SessionDO mirrors focus into DO
+storage from BOTH directions (outbound parcel visuals AND the inbound
+focus-replay message — a quiet connection emits no visuals, which was the
+final hole); reborn Sessions seed lastAccount+focusNote from storage.
+PROVEN under real hibernation: headless test saw the rebirth (second
+`ready` frame mid-idle) and still drafted for the right parcel; the
+previously-failing browser flow (reload → 90s idle → "draft a letter to
+the owner") now works. LESSON LEARNED (twice today): worker deploys take
+~1-2 min to propagate AND live DOs keep old code — test on a FRESH
+connection after a wait. KNOWN COSMETIC (needs eyes-on session):
+constellation chips can clip at screen edges on narrow/mobile viewports.
+
 ### P2-7 · Claude brain burn-in (WHEN CREDITS LAND) — first restart gateway, then:
 - Run multi-turn suite: follow-ups ("who owns it" after "what's it worth"),
   constellation comparison ("which of these is the better deal per square foot?"),

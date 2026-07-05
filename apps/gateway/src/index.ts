@@ -23,6 +23,13 @@ wss.on("connection", (ws, req) => {
     ws.close(4401, "unauthorized");
     return;
   }
+  // The team-room feed is a Workers/DO feature; in local dev, hold the
+  // socket open as a silent sink so the client doesn't reconnect-loop —
+  // but don't spin up a phantom voice Session for it.
+  if (url.pathname === "/room") {
+    ws.on("error", () => undefined);
+    return;
+  }
   const session = new Session(ws, { user: url.searchParams.get("u") });
   ws.on("message", (data, isBinary) => {
     if (isBinary) session.handleAudio(data as Buffer);

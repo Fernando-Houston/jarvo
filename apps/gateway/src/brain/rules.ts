@@ -565,7 +565,9 @@ export function createRulesBrain(): Brain {
         say(`${d.title} is on your screen. Read it over — say "file it" to save it to the lead, or tell me what to change.`);
         return;
       }
-      if (/^(file|send) (it|that|the (letter|sheet|summary|doc(ument)?))\b/i.test(userText.trim())) {
+      // "file it", "looks good, send it", "file the letter" — anywhere in the
+      // utterance, so approval phrasing stays natural.
+      if (/\b(file|send) (it|that|the (letter|sheet|summary|doc(ument)?))\b/i.test(userText)) {
         events.onTool("file_document", "start");
         let f;
         try {

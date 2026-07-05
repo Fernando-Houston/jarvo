@@ -306,6 +306,15 @@ export class Session {
       : userText;
     try {
       await this.brain.run(effectiveText, events, toolCtx, abort.signal);
+      // The model can occasionally end a turn with no text at all (adaptive
+      // thinking that never surfaces). Dead air reads as "it's broken" —
+      // never let a completed turn finish silent.
+      if (!abort.signal.aborted && !spokeAnything) {
+        const nudge =
+          "Hm, I came up blank on that one. Say it once more, or give me a street address — and you can always ask what I can do.";
+        events.onTextDelta(nudge);
+        events.onSentence(nudge);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       // Claude configured but the org can't bill (no credits yet): degrade to

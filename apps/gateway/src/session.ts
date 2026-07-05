@@ -30,6 +30,8 @@ export class Session {
   /** Half-duplex echo guard: while a turn is speaking, drop STT results so
    *  HVI never transcribes (and answers) its own voice. Barge-in comes later. */
   private turnSpeaking = false;
+  /** Quiet mode: text captions only, no TTS audio (set by the client). */
+  private muted = false;
   /** Rules brain standing in while Claude can't bill (created on first need). */
   private fallbackBrain: Brain | null = null;
   /** Set when the client restores focus on a fresh session (reconnect after
@@ -136,6 +138,9 @@ export class Session {
         break;
       case "interrupt":
         this.interrupt();
+        break;
+      case "set_muted":
+        this.muted = msg.muted === true;
         break;
       case "doc_action":
         if (msg.action === "file" || msg.action === "discard") {
@@ -270,14 +275,16 @@ export class Session {
           this.send({ type: "state", state: "speaking" });
         }
         if (tts) tts.enqueue(sentence);
-        else this.send({ type: "speak", text: sentence });
+        else if (!this.muted) this.send({ type: "speak", text: sentence });
       },
       onTool: (name: string, status: "start" | "end") => {
         if (!abort.signal.aborted) this.send({ type: "tool", name, status });
       },
     };
+    // Quiet mode: same brain and captions, no audio. Skip the TTS queue
+    // entirely so we don't spend ElevenLabs characters when muted.
     const tts =
-      this.caps.tts === "elevenlabs"
+      !this.muted && this.caps.tts === "elevenlabs"
         ? createTtsQueue({
             onChunk: (audio, mime, last) => {
               if (abort.signal.aborted) return;

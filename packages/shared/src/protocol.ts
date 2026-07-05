@@ -136,6 +136,9 @@ export type ClientMsg =
   | { type: "audio_stop" }
   /** Barge-in: stop speaking/thinking immediately. */
   | { type: "interrupt" }
+  /** Quiet mode: when muted, the gateway skips TTS audio entirely and streams
+   *  only text captions (same brain, no voice). Persists for the connection. */
+  | { type: "set_muted"; muted: boolean }
   /** Document panel action: file the pending draft to the CRM, or discard it.
    *  `doc` carries the draft itself so filing survives gateway restarts and
    *  Durable Object hibernation (server memory may have been reborn empty). */

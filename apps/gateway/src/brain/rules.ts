@@ -43,6 +43,13 @@ export function createRulesBrain(): Brain {
         events.onTextDelta(s + " ");
         events.onSentence(s);
       };
+      // Progressive disclosure: put text on screen (captions/transcript)
+      // WITHOUT speaking it — for the long tail of a digest or hot list, so
+      // the voice stays a short headline and the detail is there to read.
+      const show = (s: string) => {
+        if (signal.aborted) return;
+        events.onTextDelta(s + "\n");
+      };
 
       // ── Voice commands against the CRM ("this one" = last parcel discussed) ──
       const mem = ctx.memory;
@@ -309,7 +316,15 @@ export function createRulesBrain(): Brain {
             say("The digest didn't come back just now — try again in a moment.");
           } else {
             if (d.swept_just_now) say("No stored digest yet, so I swept just now.");
-            for (const b of d.bullets as string[]) say(b);
+            // Speak the first couple of lines; the rest goes on screen so the
+            // brief stays short out loud without hiding anything.
+            const bullets = d.bullets as string[];
+            for (const b of bullets.slice(0, 2)) say(b);
+            const rest = bullets.slice(2);
+            if (rest.length) {
+              say(`There ${rest.length === 1 ? "is one more item" : `are ${rest.length} more items`} on your screen.`);
+              for (const b of rest) show(b);
+            }
           }
         } catch {
           events.onTool("nightly_digest", "end");
@@ -771,10 +786,15 @@ export function createRulesBrain(): Brain {
         say(
           `Zip ${h.zip} has ${h.on_list} scored prospect${h.on_list === 1 ? "" : "s"} above the floor${h.scored_month ? `, ranked from the ${h.scored_month} county archive` : ""} — the top ${h.shown.length} are on your map.`
         );
-        for (const c of h.shown.slice(0, 2)) {
+        const shown = h.shown as Array<{ address?: string | null; score: number; why: string; appraised_value?: number | null }>;
+        // Speak the sharpest two; list the rest on screen.
+        for (const c of shown.slice(0, 2)) {
           say(
             `${(c.address ?? "One").split(",")[0]} scores ${c.score}: ${c.why}${c.appraised_value ? `, appraised ${money(c.appraised_value)}` : ""}.`
           );
+        }
+        for (const c of shown.slice(2)) {
+          show(`${(c.address ?? "One").split(",")[0]} — scores ${c.score}: ${c.why}`);
         }
         say("Scores don't include tax distress — say tax radar to layer that on. Say save it or trace it on any of them and I'll move.");
         return;

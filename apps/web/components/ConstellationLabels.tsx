@@ -54,12 +54,14 @@ export default function ConstellationLabels() {
       {memoryChips.map((chip) => (
         <div
           key={chip.id}
-          className={`node-chip ${chip.isFocus ? "focus" : ""}`}
+          className={`node-chip ${chip.verdict ? `v-${chip.verdict.toLowerCase()}` : ""} ${chip.distress ? "distress" : ""} ${chip.inPipeline ? "pipeline" : ""}`}
           onClick={() => {
-            // Tap a node to travel there: instant local refocus (map + card)
-            // plus the spoken answer — no waiting on the round-trip.
+            // Tap = SILENT navigation: instant local refocus, no spoken turn.
+            // (Ask by voice or hit "Tell me more" on the card for a briefing.)
             if (chip.id !== "comps-summary") {
-              import("@/lib/voice").then(({ voice }) => voice.focusNode(chip.id, chip.label));
+              import("@/lib/voice").then(({ voice }) => {
+                if (voice.focusNode(chip.id)) voice.haptic(12);
+              });
             }
           }}
           ref={(el) => {
@@ -67,7 +69,17 @@ export default function ConstellationLabels() {
             else refs.current.delete(chip.id);
           }}
         >
-          <span className="chip-addr">{chip.label}</span>
+          <span className="chip-addr">
+            {(chip.inPipeline || chip.distress || chip.verdict || chip.hasContacts) && (
+              <span className="chip-dots" aria-hidden>
+                {chip.inPipeline && <i className="dot dot-pipeline" title="In pipeline" />}
+                {chip.verdict && <i className={`dot dot-${chip.verdict.toLowerCase()}`} title={`Verdict ${chip.verdict}`} />}
+                {chip.distress && <i className="dot dot-distress" title="Tax distress" />}
+                {chip.hasContacts && <span className="dot-phone" title="Owner number on file">☎</span>}
+              </span>
+            )}
+            {chip.label}
+          </span>
           <span className="chip-meta">
             {money(chip.value)}
             {chip.distanceMi != null && ` · ${chip.distanceMi < 0.1 ? "nearby" : chip.distanceMi.toFixed(1) + " mi"}`}

@@ -17,10 +17,39 @@ function money(n: number | null): string {
 export default function HUD() {
   const {
     connected, caps, orbState, transcript, caption, visual, chips, micArmed, freeCam, error,
-    turns, showTranscript, toggleTranscript, activity, digest, dismissDigest, teamNote, doc,
+    turns, showTranscript, toggleTranscript, activity, digest, dismissDigest, teamNote, doc, muted,
   } = useHvi();
   const [typed, setTyped] = useState("");
   const railRef = useRef<HTMLElement>(null);
+  // Mic gesture: a quick tap toggles listening; press-and-hold is push-to-talk
+  // (listen while held, stop on release) — natural in a noisy truck cab.
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const heldPTT = useRef(false);
+  const micDown = () => {
+    heldPTT.current = false;
+    holdTimer.current = setTimeout(() => {
+      heldPTT.current = true;
+      if (!useHvi.getState().micArmed) {
+        voice.haptic(15);
+        void voice.toggleMic();
+      }
+    }, 280);
+  };
+  const micUp = () => {
+    if (holdTimer.current) {
+      clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+    }
+    if (heldPTT.current) {
+      // Push-to-talk release: stop listening.
+      if (useHvi.getState().micArmed) void voice.toggleMic();
+      heldPTT.current = false;
+    } else {
+      // Quick tap: toggle.
+      voice.haptic(10);
+      void voice.toggleMic();
+    }
+  };
   // null = unsupported/undetermined (button hidden), otherwise current state.
   const [alerts, setAlerts] = useState<boolean | null>(null);
   const [alertsBusy, setAlertsBusy] = useState(false);
@@ -219,6 +248,20 @@ export default function HUD() {
               </div>
             )}
           </div>
+
+          {/* Quick actions — act on the parcel by thumb, no voice needed */}
+          <div className="card-actions">
+            {visual.leadStatus ? (
+              <button className="qa" onClick={() => voice.quickAction("mark it hot")} title="Set status to hot lead">Mark hot</button>
+            ) : (
+              <button className="qa qa-primary" onClick={() => voice.quickAction("save it")} title="Save to the pipeline">Save lead</button>
+            )}
+            <button className="qa" onClick={() => voice.quickAction("trace the owner")} title="Skip-trace the owner">Trace</button>
+            <button className="qa" onClick={() => voice.quickAction("run the verdict on this")} title="Go/no-go screen">Verdict</button>
+            <button className="qa" onClick={() => voice.quickAction("prep a call sheet")} title="Draft a call sheet">Call sheet</button>
+            <button className="qa qa-ghost" onClick={() => voice.tellMeMore()} title="Hear the full briefing">🔊 Tell me more</button>
+          </div>
+
           {/* Reach the owner — CRM enrichment; tap a number to dial */}
           {visual.contacts && (visual.contacts.phones.length > 0 || visual.contacts.contactInfo) && (
             <div className="contact-block">
@@ -253,6 +296,15 @@ export default function HUD() {
                 );
               })}
               <div className="contact-hours">Calling hours: 8am–9pm · manual dial only</div>
+              {/* Close the loop: one-thumb call outcome after you dial. */}
+              {visual.contacts.phones.some((p) => p.status !== "bad" && !p.dnc) && (
+                <div className="log-call">
+                  <span className="log-call-label">After a call, log it:</span>
+                  <button className="log-btn" onClick={() => voice.quickAction("log that call, no answer")}>No answer</button>
+                  <button className="log-btn" onClick={() => voice.quickAction("log that call, wrong number")}>Wrong #</button>
+                  <button className="log-btn log-good" onClick={() => voice.quickAction("log that call, talked to them")}>Talked</button>
+                </div>
+              )}
               {visual.contacts.contactInfo && (
                 <div className="contact-notes">{visual.contacts.contactInfo}</div>
               )}
@@ -275,8 +327,11 @@ export default function HUD() {
         <div className="controls">
           <button
             className={`mic ${micArmed ? "armed" : ""}`}
-            onClick={() => void voice.toggleMic()}
-            title={micArmed ? "Stop listening" : "Ask by voice"}
+            onPointerDown={(e) => { e.preventDefault(); micDown(); }}
+            onPointerUp={micUp}
+            onPointerLeave={() => { if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; } }}
+            onPointerCancel={() => { if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; } if (heldPTT.current && useHvi.getState().micArmed) void voice.toggleMic(); heldPTT.current = false; }}
+            title={micArmed ? "Stop listening (or hold to talk)" : "Tap to listen · hold to talk"}
           >
             <span className="mic-ring" aria-hidden />
             {micArmed ? (
@@ -316,6 +371,13 @@ export default function HUD() {
               clear map
             </button>
           )}
+          <button
+            className={`clear ${muted ? "active" : ""}`}
+            onClick={() => voice.setMuted(!muted)}
+            title={muted ? "Quiet mode on — captions only, no voice" : "Mute the voice (captions only)"}
+          >
+            {muted ? "🔇 quiet" : "🔊 voice"}
+          </button>
           {alerts != null && (
             <button
               className={`clear ${alerts ? "active" : ""}`}

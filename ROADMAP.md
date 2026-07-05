@@ -17,6 +17,11 @@ CRM-first + DNC compliance, call-outcome logging, entity→principal resolution*
 **Pipeline enriched:** ~85 leads carry traced numbers (full sweep done 2026-07-05).
 **Next build (NEXT-HORIZON §6):** Aug 1 = exemption-drop + value-velocity analytics (snapshot #2
 lands); then permits/pre-foreclosure connects, history-across-hibernation.
+**UX pass (2026-07-05):** node taps are SILENT (navigation, not a spoken turn) — "🔊 Tell me
+more" / voice gives the briefing; card quick-action buttons (Save/Hot/Trace/Verdict/Call sheet);
+post-dial "log call" buttons close the calibration loop by thumb; chip state badges (pipeline dot /
+☎ contacts / verdict dots / distress glow); tap-orb-to-interrupt (barge-in without mic); quiet mode
+(captions only, `set_muted` protocol); press-and-hold mic = push-to-talk; haptics; reduced-motion.
 **Standing user actions:** rotate chat-exposed secrets + set `HVI_SHARED_SECRET` (see DEPLOY.md);
 teammates open jarvo.pages.dev/?u=<name> + enable alerts; decide the `need_numbers→new_numbers_added`
 auto-flip on trace success.

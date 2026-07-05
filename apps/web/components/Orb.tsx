@@ -228,10 +228,20 @@ function CameraRig() {
         attach();
       }
     };
+    // Track a single-pointer gesture to tell a tap from a drag: a tap on the
+    // orb while it's speaking/thinking interrupts (barge-in without a mic).
+    let downAt = 0;
+    let downPos: { x: number; y: number } | null = null;
+    let moved = 0;
     const onDown = (e: PointerEvent) => {
       armGyro();
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       el.setPointerCapture(e.pointerId);
+      if (pointers.size === 1) {
+        downAt = performance.now();
+        downPos = { x: e.clientX, y: e.clientY };
+        moved = 0;
+      }
     };
     const onMove = (e: PointerEvent) => {
       const prev = pointers.get(e.pointerId);
@@ -253,6 +263,7 @@ function CameraRig() {
       const dx = cur.x - prev.x;
       const dy = cur.y - prev.y;
       pointers.set(e.pointerId, cur);
+      if (downPos) moved += Math.abs(dx) + Math.abs(dy);
       if (Math.abs(dx) + Math.abs(dy) < 1) return;
       takeControl();
       orbBus.cam.yaw -= dx * 0.005;
@@ -261,6 +272,17 @@ function CameraRig() {
     const onUp = (e: PointerEvent) => {
       pointers.delete(e.pointerId);
       if (pointers.size < 2) prevPinch = null;
+      // A quick, still tap (not a drag) on the orb during speech = interrupt.
+      if (downPos && moved < 8 && performance.now() - downAt < 400) {
+        const st = useHvi.getState().orbState;
+        if (st === "speaking" || st === "thinking") {
+          void import("@/lib/voice").then(({ voice }) => {
+            voice.interrupt();
+            voice.haptic(15);
+          });
+        }
+      }
+      downPos = null;
     };
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();

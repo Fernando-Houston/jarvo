@@ -233,6 +233,29 @@ a.contact-num:hover { text-decoration: underline; }
 .contact-hours { font-size: 10.5px; color: var(--dim); letter-spacing: 0.04em; margin-top: 2px; }
 .contact-notes { font-size: 12px; color: var(--dim); font-style: italic; }
 
+/* Card quick actions — act on the parcel by thumb */
+.card-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.qa {
+  padding: 6px 11px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;
+  color: var(--fg); background: rgba(46, 218, 117, 0.09);
+  border: 1px solid rgba(46, 218, 117, 0.28); transition: background 140ms ease, border-color 140ms ease;
+}
+.qa:hover { background: rgba(46, 218, 117, 0.16); border-color: rgba(46, 218, 117, 0.5); }
+.qa:active { filter: brightness(1.2); }
+.qa-primary { background: rgba(46, 218, 117, 0.18); border-color: rgba(46, 218, 117, 0.55); }
+.qa-ghost { background: transparent; border-color: rgba(233, 246, 238, 0.18); color: var(--dim); margin-left: auto; }
+.qa-ghost:hover { color: var(--fg); border-color: rgba(233, 246, 238, 0.4); background: rgba(233, 246, 238, 0.06); }
+
+/* Post-dial call-outcome logging — closes the calibration loop by thumb */
+.log-call { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.log-call-label { font-size: 10.5px; color: var(--dim); letter-spacing: 0.03em; }
+.log-btn {
+  padding: 4px 9px; border-radius: 7px; font-size: 11px; font-weight: 600; cursor: pointer;
+  color: var(--dim); background: rgba(233, 246, 238, 0.04); border: 1px solid rgba(233, 246, 238, 0.16);
+}
+.log-btn:hover { color: var(--fg); border-color: rgba(233, 246, 238, 0.34); }
+.log-btn.log-good { color: var(--green); border-color: rgba(46, 218, 117, 0.4); }
+
 /* Transcript rail */
 .transcript-rail {
   position: absolute; left: 24px; top: 76px; bottom: 110px;
@@ -333,9 +356,24 @@ a.contact-num:hover { text-decoration: underline; }
 .node-chip:hover { border-color: rgba(46, 218, 117, 0.65); }
 .node-chip:active { filter: brightness(1.5); }
 .node-chip.focus { border-color: rgba(255, 194, 71, 0.45); }
-.node-chip .chip-addr { font-size: 12px; font-weight: 650; color: var(--fg); letter-spacing: 0.02em; }
+.node-chip .chip-addr { font-size: 12px; font-weight: 650; color: var(--fg); letter-spacing: 0.02em; display: inline-flex; align-items: center; gap: 4px; }
 .node-chip.focus .chip-addr { color: var(--gold); }
 .node-chip .chip-meta { font-size: 11px; color: var(--dim); }
+/* Chip state ring: pipeline / verdict tint the border so the map reads at a glance */
+.node-chip.pipeline { border-color: rgba(46, 218, 117, 0.5); }
+.node-chip.v-red { border-color: rgba(255, 107, 94, 0.6); }
+.node-chip.v-yellow { border-color: rgba(255, 193, 94, 0.6); }
+.node-chip.v-green { border-color: rgba(46, 218, 117, 0.7); }
+.node-chip.distress { box-shadow: 0 0 0 1px rgba(255, 170, 60, 0.35); }
+/* State dots inside the chip */
+.chip-dots { display: inline-flex; align-items: center; gap: 3px; }
+.chip-dots .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+.dot-pipeline { background: var(--green); }
+.dot-green { background: #2eda75; }
+.dot-yellow { background: #ffc15e; }
+.dot-red { background: #ff6b5e; }
+.dot-distress { background: #ffaa3c; }
+.chip-dots .dot-phone { font-size: 9px; line-height: 1; color: var(--green); }
 
 /* ── Mobile (drive-by mode lives here) ─────────────────────────────────── */
 @media (max-width: 640px) {
@@ -358,6 +396,11 @@ a.contact-num:hover { text-decoration: underline; }
   .contact-row { gap: 10px; padding: 3px 0; }
   a.contact-num { display: inline-flex; align-items: center; min-height: 44px; font-size: 15px; }
   .card-close, .digest-close { min-width: 40px; min-height: 40px; display: inline-flex; align-items: center; justify-content: center; }
+  /* Quick-action + log buttons: thumb-sized on mobile. */
+  .qa { padding: 9px 12px; font-size: 13px; }
+  .qa-ghost { margin-left: 0; }
+  .log-btn { padding: 8px 11px; font-size: 12px; }
+  .log-call { gap: 7px; }
 
   /* Rail overlays the full width when opened. */
   .transcript-rail { left: 12px; right: 12px; width: auto; top: 56px; bottom: 190px; }

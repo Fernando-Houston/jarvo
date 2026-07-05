@@ -53,6 +53,8 @@ type HviStore = {
   teamNote: string | null;
   /** Drafted document awaiting review in the preview panel. */
   doc: DocumentVisual | null;
+  /** Quiet mode: captions only, no spoken audio. Persisted across reloads. */
+  muted: boolean;
 
   setConnected: (v: boolean) => void;
   setCaps: (c: Capabilities) => void;
@@ -75,6 +77,7 @@ type HviStore = {
   dismissDigest: () => void;
   setTeamNote: (n: string | null) => void;
   setDoc: (d: DocumentVisual | null) => void;
+  setMuted: (v: boolean) => void;
 };
 
 export const useHvi = create<HviStore>((set) => ({
@@ -97,6 +100,7 @@ export const useHvi = create<HviStore>((set) => ({
   digest: null,
   teamNote: null,
   doc: null,
+  muted: false,
 
   setConnected: (connected) => set({ connected }),
   setCaps: (caps) => set({ caps }),
@@ -126,6 +130,14 @@ export const useHvi = create<HviStore>((set) => ({
     }),
   toggleTranscript: () => set((s) => ({ showTranscript: !s.showTranscript })),
   setActivity: (activity) => set({ activity }),
+  setMuted: (muted) => {
+    try {
+      localStorage.setItem("hvi-muted", muted ? "1" : "0");
+    } catch {
+      /* private mode — lasts the tab's life */
+    }
+    set({ muted });
+  },
   setDigest: (digest) => set({ digest }),
   setTeamNote: (teamNote) => set({ teamNote }),
   setDoc: (doc) => {

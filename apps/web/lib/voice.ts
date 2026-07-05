@@ -106,6 +106,12 @@ class VoiceClient {
 
   start() {
     if (this.ws) return;
+    // Restore quiet-mode preference before connecting so onopen syncs it.
+    try {
+      if (localStorage.getItem("hvi-muted") === "1") useHvi.getState().setMuted(true);
+    } catch {
+      /* default: voice on */
+    }
     this.connect();
     this.connectRoom();
     this.levelLoop();
@@ -195,6 +201,7 @@ class VoiceClient {
     ws.onopen = () => {
       useHvi.getState().setConnected(true);
       this.send({ type: "hello" });
+      if (useHvi.getState().muted) this.send({ type: "set_muted", muted: true });
       if (this.focusAccount) this.send({ type: "focus", hcadAccount: this.focusAccount });
       const queued = this.pendingTexts;
       this.pendingTexts = [];
@@ -308,7 +315,9 @@ class VoiceClient {
         s.appendTurnText(msg.text);
         break;
       case "speak":
-        this.speakWithBrowser(msg.text);
+        // Quiet mode: captions only (belt-and-suspenders — the server also
+        // suppresses this, but a stale in-flight frame shouldn't speak).
+        if (!useHvi.getState().muted) this.speakWithBrowser(msg.text);
         break;
       case "audio_chunk":
         // binary frame follows; `last` closes out one sentence blob
@@ -420,23 +429,57 @@ class VoiceClient {
   }
 
   /** Node tap: instantly refocus the map + card from local constellation
-   *  data (no round-trip), tell the gateway, and ask about it out loud. */
-  focusNode(hcadAccount: string, label: string) {
+   *  data (no round-trip) and sync focus to the gateway — SILENTLY. Tapping
+   *  is navigation, not a question: the card already shows everything, so we
+   *  don't fire a spoken turn. Use "Tell me more" / voice for a narrated
+   *  briefing. (Returns whether it refocused, for the caller's haptic.) */
+  focusNode(hcadAccount: string, _label?: string): boolean {
     const res = focusParcelById(hcadAccount);
-    if (res) {
-      useHvi.getState().setVisual(res.visual);
-      setOrbFlood(Boolean(res.visual.sfha));
-      this.focusAccount = res.visual.hcadAccount;
-      this.applyLayout(res.layout);
-      try {
-        const snapshot = serializeConstellation();
-        if (snapshot) localStorage.setItem(SAVE_KEY, snapshot);
-      } catch {
-        /* ignore */
-      }
-      this.send({ type: "focus", hcadAccount: res.visual.hcadAccount });
+    if (!res) return false;
+    useHvi.getState().setVisual(res.visual);
+    setOrbFlood(Boolean(res.visual.sfha));
+    this.focusAccount = res.visual.hcadAccount;
+    this.applyLayout(res.layout);
+    try {
+      const snapshot = serializeConstellation();
+      if (snapshot) localStorage.setItem(SAVE_KEY, snapshot);
+    } catch {
+      /* ignore */
     }
-    this.sendText(`Tell me about ${label}`);
+    // Quietly re-establish "this one" server-side so a follow-up voice
+    // question ("what's the flood zone here?") resolves to this parcel.
+    this.send({ type: "focus", hcadAccount: res.visual.hcadAccount });
+    return true;
+  }
+
+  /** The one-tap spoken briefing the silent tap deliberately withholds. */
+  tellMeMore() {
+    const v = useHvi.getState().visual;
+    if (v) this.sendText(`Tell me about ${v.address ?? "this property"} in more detail.`);
+  }
+
+  /** Card quick actions: run the same command a voice utterance would, so the
+   *  card becomes act-able by thumb. Confirmation is spoken unless muted. */
+  quickAction(command: string) {
+    this.haptic(12);
+    this.sendText(command);
+  }
+
+  /** Quiet mode: same brain + captions, no audio. Tells the gateway to skip
+   *  TTS and stops any playback in flight. */
+  setMuted(muted: boolean) {
+    useHvi.getState().setMuted(muted);
+    if (muted) this.stopPlayback();
+    this.send({ type: "set_muted", muted });
+  }
+
+  /** A short haptic tick where supported (silent no-op elsewhere). */
+  haptic(ms = 10) {
+    try {
+      navigator.vibrate?.(ms);
+    } catch {
+      /* unsupported */
+    }
   }
 
   /** Dismiss the parcel card (map + focus stay). */

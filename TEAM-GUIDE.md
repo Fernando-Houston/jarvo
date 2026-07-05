@@ -56,7 +56,15 @@
 - "**Save it**" · "Save it and **mark it hot**" · "**Note:** seller sounds motivated" · "**Wrap up the session**" — recap notes on every pipeline lead discussed
 
 **Map**
-- Tap any node to refocus · "clear map" wipes it · teammates' parcels join your map automatically with a "◈ name · address" toast
+- **Tap any node to refocus** — instant and SILENT (it just pulls up the card; no talking). Want the spoken rundown? Tap **🔊 Tell me more** on the card, or just ask by voice.
+- Nodes show their state at a glance: a green dot = in your pipeline, a ☎ = you have the owner's number, colored dots = verdict (green/yellow/red), amber glow = tax distress.
+- "clear map" wipes it · teammates' parcels join your map automatically with a "◈ name · address" toast
+
+**Do it by thumb (no voice needed)**
+- The card has buttons: **Save lead · Mark hot · Trace · Verdict · Call sheet** — same as saying it out loud.
+- After you tap a number to dial, the card shows **No answer / Wrong # / Talked** — one tap logs the call so the data keeps getting smarter.
+- **🔊 voice / 🔇 quiet** toggle (bottom bar): mute Jarvo's voice for the office — you still get captions and everything works, just silent.
+- **Tap the orb while it's talking to cut it off** (barge-in without the mic). And on the mic button: quick tap = listen; **press and hold = push-to-talk** (talk while held, release to send) — handy in a loud truck.
 
 ## What runs by itself
 

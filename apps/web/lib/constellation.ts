@@ -22,7 +22,22 @@ export type Chip = {
   value: number | null;
   distanceMi: number | null;
   isFocus: boolean;
+  /** At-a-glance state so the map is readable without tapping each node. */
+  inPipeline?: boolean;
+  verdict?: "GREEN" | "YELLOW" | "RED" | null;
+  distress?: boolean;
+  hasContacts?: boolean;
 };
+
+/** Pull the glanceable state a chip should badge from its parcel visual. */
+function chipState(v: ParcelVisual): Pick<Chip, "inPipeline" | "verdict" | "distress" | "hasContacts"> {
+  return {
+    inPipeline: Boolean(v.leadStatus),
+    verdict: v.verdict ?? null,
+    distress: Boolean(v.taxSale),
+    hasContacts: Boolean(v.contacts && v.contacts.phones.some((p) => p.status !== "bad" && !p.dnc)),
+  };
+}
 
 export type Anchor = {
   id: string;
@@ -234,7 +249,7 @@ function layout(): Layout {
 
   const focusAnchor = tiltPoint(0, -0.1, 0);
   anchors.push({ id: f.hcadAccount, pos: focusAnchor, isFocus: true });
-  chips.push({ id: f.hcadAccount, label: shortLabel(f), value: f.appraisedValue, distanceMi: null, isFocus: true });
+  chips.push({ id: f.hcadAccount, label: shortLabel(f), value: f.appraisedValue, distanceMi: null, isFocus: true, ...chipState(f) });
 
   let cursor = MORPH_START + focusCount;
   let maxR = 1.2;
@@ -251,6 +266,7 @@ function layout(): Layout {
       value: p.v.appraisedValue,
       distanceMi: p.distMi,
       isFocus: false,
+      ...chipState(p.v),
     });
     lineVerts.push(...focusAnchor, ...anchor);
     maxR = Math.max(maxR, Math.hypot(p.x, p.y));

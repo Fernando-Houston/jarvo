@@ -19,8 +19,11 @@ export type OrbBus = {
   /** Constellation connecting lines (xyz endpoint pairs). */
   lines: Float32Array | null;
   linesVersion: number;
-  /** Where the camera should sit (eased toward). */
+  /** Where the camera should sit (eased toward) — desktop-tuned baseline. */
   cameraZ: number;
+  /** Constellation world-space spread; the orb fits this to the LIVE aspect
+   *  (portrait phones pull the camera back much further than desktop). */
+  fitRadius: number;
   /** 3D anchors for floating labels. */
   anchors: Anchor[];
   /** Screen-space label positions, written by the orb each frame. */
@@ -46,6 +49,7 @@ export const orbBus: OrbBus = {
   lines: null,
   linesVersion: 0,
   cameraZ: 4.2,
+  fitRadius: 0,
   anchors: [],
   screens: new Map(),
   cam: { yaw: 0, pitch: 0, radius: 4.2, user: false },

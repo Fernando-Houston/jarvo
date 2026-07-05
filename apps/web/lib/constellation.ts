@@ -52,6 +52,9 @@ export type Layout = {
   chips: Chip[];
   anchors: Anchor[];
   cameraZ: number;
+  /** Constellation's world-space spread — lets the camera fit it to the
+   *  ACTUAL screen shape (portrait phones need much more distance). */
+  fitRadius: number;
 };
 
 const MAX_MEMORIES = 5;
@@ -358,6 +361,9 @@ function layout(): Layout {
     lines: new Float32Array(lineVerts),
     chips,
     anchors,
+    // Desktop-tuned baseline distance; the orb's camera also fits fitRadius
+    // against the live viewport aspect and takes whichever needs more room.
     cameraZ: Math.min(6.6, 4.2 + Math.max(0, maxR - 1.3) * 1.15),
+    fitRadius: maxR,
   };
 }

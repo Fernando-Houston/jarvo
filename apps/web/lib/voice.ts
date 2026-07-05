@@ -175,6 +175,7 @@ class VoiceClient {
     setOrbLines(layout.lines);
     orbBus.anchors = layout.anchors;
     orbBus.cameraZ = layout.cameraZ;
+    orbBus.fitRadius = layout.fitRadius;
   }
 
   private connect() {
@@ -410,6 +411,7 @@ class VoiceClient {
     orbBus.anchors = [];
     orbBus.screens.clear();
     orbBus.cameraZ = 4.2;
+    orbBus.fitRadius = 0;
   }
 
   // ── User input ───────────────────────────────────────────────────────────

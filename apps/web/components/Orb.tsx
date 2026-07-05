@@ -255,7 +255,7 @@ function CameraRig() {
         const dist = Math.hypot(cur.x - other.x, cur.y - other.y);
         if (prevPinch != null && dist > 0) {
           takeControl();
-          orbBus.cam.radius = Math.max(2.4, Math.min(11, orbBus.cam.radius * (prevPinch / dist)));
+          orbBus.cam.radius = Math.max(2.4, Math.min(15, orbBus.cam.radius * (prevPinch / dist)));
         }
         prevPinch = dist;
         return;
@@ -287,7 +287,7 @@ function CameraRig() {
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       takeControl();
-      orbBus.cam.radius = Math.max(2.4, Math.min(11, orbBus.cam.radius * (1 + e.deltaY * 0.0012)));
+      orbBus.cam.radius = Math.max(2.4, Math.min(15, orbBus.cam.radius * (1 + e.deltaY * 0.0012)));
     };
 
     el.addEventListener("pointerdown", onDown);
@@ -477,7 +477,19 @@ function Particles() {
       cam.position.lerp(target, Math.min(1, delta * 6));
     } else {
       // Cinematic auto camera: fit the constellation + pointer parallax.
-      const zGoal = constellationOut ? orbBus.cameraZ : 4.2;
+      // The baseline cameraZ is desktop-tuned; ALSO fit the constellation's
+      // spread against the LIVE aspect so a portrait phone (whose horizontal
+      // frustum is ~4× narrower) pulls back far enough that east/west nodes
+      // actually land on screen instead of past its edges.
+      let zGoal = constellationOut ? orbBus.cameraZ : 4.2;
+      if (constellationOut && orbBus.fitRadius > 0) {
+        const pc = cam as THREE.PerspectiveCamera;
+        const tanV = Math.tan((pc.fov * Math.PI) / 360);
+        const tanH = tanV * pc.aspect;
+        // 1.18 margin keeps chips (which hang below anchors) inside too.
+        const fitH = (orbBus.fitRadius * 1.18) / tanH;
+        zGoal = Math.min(15, Math.max(zGoal, fitH));
+      }
       orbBus.cam.radius = zGoal; // keep free-cam zoom in sync for a smooth grab
       cam.position.z += (zGoal - cam.position.z) * Math.min(1, delta * 1.5);
       // Pointer parallax on desktop; device-tilt parallax on phones — the

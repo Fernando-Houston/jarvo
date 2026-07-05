@@ -22,13 +22,22 @@ export default function ConstellationLabels() {
   useEffect(() => {
     let raf = 0;
     const tick = () => {
+      // Clamp each chip to the viewport so edge nodes don't bleed off-screen
+      // (chips are translate(-50%), so keep the center within half-width of
+      // both edges). Cheap here — the constellation holds ~5 chips.
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const margin = 6;
       for (const [id, el] of refs.current) {
         const screen = orbBus.screens.get(id);
         if (!screen || !screen.visible) {
           el.style.opacity = "0";
         } else {
           el.style.opacity = "1";
-          el.style.transform = `translate(-50%, 0) translate(${screen.x}px, ${screen.y + 14}px)`;
+          const halfW = el.offsetWidth / 2;
+          const x = Math.max(halfW + margin, Math.min(vw - halfW - margin, screen.x));
+          const y = Math.max(margin, Math.min(vh - el.offsetHeight - margin, screen.y + 14));
+          el.style.transform = `translate(-50%, 0) translate(${x}px, ${y}px)`;
         }
       }
       raf = requestAnimationFrame(tick);

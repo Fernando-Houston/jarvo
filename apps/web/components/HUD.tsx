@@ -245,7 +245,7 @@ export default function HUD() {
                         ? `bad${p.badReason ? ` · ${p.badReason.replace(/_/g, " ")}` : ""}`
                         : p.dnc
                           ? "DO NOT CALL · DNC registry"
-                          : [isPrimary ? "primary" : null, p.contactName, p.source]
+                          : [isPrimary ? "primary" : null, p.contactName, p.source?.replace(/^skiptrace:/, "")]
                               .filter(Boolean)
                               .join(" · ") || "on file"}
                     </span>

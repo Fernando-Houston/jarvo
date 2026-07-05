@@ -37,6 +37,9 @@
 **Ownership intelligence**
 - "Who **really** owns this?" (the mailbox trail beats LLC names) · "What **else** do they own?" · "Any **assemblage** play on this block?"
 
+**Reach the owner**
+- Pull up any lead and the card shows **REACH THE OWNER**: tap a number to dial, bad numbers shown struck-through so nobody redials a wrong number. Ask "what's the owner's number?" and Jarvo reads out the primary.
+
 **Pipeline (the CRM, by voice)**
 - "Good morning" / "briefing" — your hot + new leads pop onto the map
 - "What's new **overnight**?" — the digest

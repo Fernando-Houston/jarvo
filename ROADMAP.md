@@ -396,6 +396,28 @@ STILL OWED: these keys passed through chat — regenerate the Enformion
 key in the portal (Apps → API → Keys) and re-put when convenient (same
 bucket as the other chat-exposed secrets).
 
+**✅ MATCH-QUALITY INVESTIGATION + FIXES (2026-07-05,
+SKIPTRACE-MATCH-QUALITY.md):** the first production batch matched 2/10 —
+investigated against the LIVE API, three unrelated causes. (1) REAL BUG:
+`splitAddress()` split on the first comma → every `addressLine2` had a
+double comma, and a trailing-dash zip ("77082-", blank +4) garbled it into
+"HOUSTON, TX 77082-, TX " which Enformion couldn't match — cost real people
+(Clyde Drexler, 25-yr absentee: proven clean line matches 5ph/5em, garbled
+misses). Rewrote the parser to read HCAD's `STREET, CITY, ST ZIP` from the
+RIGHT + a clean `addressLine2()` builder; fixed a latent zip-from-street-
+number bug the rewrite surfaced. (2) WASTED CALLS: 4 of 8 misses were
+institutions (CHANGE HAPPENS CDC ×2, PROJECT ROW HOUSES, HOLMAN ST BAPTIST
+CHUR — HCAD truncates CHURCH→CHUR). Split entity detection into
+ENTITY_PREFIX (mid-word, for truncation) + ENTITY_WORD (whole-word so
+CO/LP/CDC don't eat surnames — COLE/COOK/COSTNER/BANKS tested clean);
+entities skip BEFORE the API at zero cost, route to owner_graph. (3)
+GENUINE LIMIT: 2 recent-immigrant condo owners (Zhang/Liu, 2022) have thin
+US identity footprints — unrecoverable, reported honestly. RULED OUT:
+throttling (6× burst matched 6/6), name-order. Person Search endpoint
+($0.35 multi-candidate) researched for the thin tail but parked. Net on the
+8: +2 reachable owners recovered, 4 wasted calls killed, 2 honest misses.
+Deployed; unit-tested against every real problem string.
+
 **✅ PROPENSITY ENGINE v1 (2026-07-05, NEXT-HORIZON §6 item 2):** the county
 funnel is live. `tools/propensityScore.ts` — ONE shared transparent
 weighted sum (teardown ratio <15% on ≥3ksf lot +40 · absentee +25 · 15yr+

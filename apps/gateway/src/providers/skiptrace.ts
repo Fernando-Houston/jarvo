@@ -55,15 +55,30 @@ export type SkipTraceProvider = {
   trace(ownerName: string, mailingAddress: string | null, siteAddress: string | null): Promise<TraceResult>;
 };
 
+// Entity / institutional owners a PERSON search can't (or shouldn't) trace —
+// companies, trusts, and non-selling institutions (govt, churches, schools,
+// nonprofits). Split by match style because HCAD truncates long names:
+//  PREFIX tokens fire mid-word (DEVELOP→"DEVELOPMENT", CHUR→"CHURCH");
+//  WHOLE-WORD tokens need clean boundaries so short/ambiguous ones (CO, LP,
+//  CDC) don't eat real surnames. Verified against real 2026-07-05 misses
+//  (CHANGE HAPPENS CDC, PROJECT ROW HOUSES, HOLMAN ST BAPTIST CHUR, KS
+//  HOUSTON DEVELOPMENT; HOLDINGS CORPORATION).
+const ENTITY_PREFIX =
+  /\b(LLC|CORP|CHUR|IGLESIA|MINISTR|BAPTIST|METHODIST|CATHOLIC|DIOCESE|SYNAGOG|SCHOOL|ACADEM|COLLEGE|UNIVERSIT|TRUST|ESTATE|PARTNER|PROPERT|HOMES|HOUSES|HOUSING|DEVELOP|HOLDING|INVEST|VENTURE|REALT|BUILDER|CAPITAL|MANAGEMENT|ENTERPRIS|COMPAN|ASSOC|LENDING|FUNDING|AUTHORIT|FOUNDATION|COALITION|COUNCIL|DISTRICT|AGENC|MINISTRIES|NONPROFIT|INCORP)/i;
+const ENTITY_WORD =
+  /\b(INC|LTD|LP|L\.?L\.?C|L\.?P|CO|CDC|USA|MUD|FUND|BANK|GROUP|CENTER|CENTRE|SOCIETY|TEMPLE|MOSQUE|COUNTY|MGMT|ASSN|LLP|PLLC|PC|CITY OF|STATE OF|UNITED STATES)\b/i;
+
+function isEntityName(owner: string): boolean {
+  return ENTITY_PREFIX.test(owner) || ENTITY_WORD.test(owner);
+}
+
 /** "SMITH JOHN R" / "SMITH, JOHN" → {first, last}; entities stay whole.
  *  HCAD often splits an entity across owner_name_1;owner_name_2 — check the
  *  WHOLE string for entity words, not just the first segment ("KS HOUSTON
  *  DEVELOPMENT; HOLDINGS CORPORATION" must read as an entity). */
 function splitOwnerName(owner: string): { first: string | null; last: string; entity: boolean } {
   const cleaned = owner.split(";")[0].trim();
-  const ENTITY =
-    /\b(LLC|L L C|INC|LTD|LP|L P|CORP(ORATION)?|TRUST|ESTATE|PARTNERS(HIP)?|PROPERTIES|HOMES|CHURCH|CITY OF|COUNTY|HOUSING|DEVELOPMENT|HOLDINGS?|INVESTMENTS?|VENTURES?|GROUP|REALTY|BUILDERS|CAPITAL|MANAGEMENT|ENTERPRISES?|FUND|COMPANY|ASSOCIAT(ES|ION)|BANK|JOINT VENTURE|AUTHORITY|FOUNDATION)\b/i;
-  if (ENTITY.test(owner)) {
+  if (isEntityName(owner)) {
     return { first: null, last: cleaned, entity: true };
   }
   const noComma = cleaned.replace(",", " ").replace(/\s+/g, " ");
@@ -73,15 +88,34 @@ function splitOwnerName(owner: string): { first: string | null; last: string; en
   return { first: null, last: cleaned, entity: false };
 }
 
-/** "1216 YALE ST, HOUSTON TX 77008" → parts for provider payloads. */
+/** Parse an HCAD mailing string into clean parts for the provider payload.
+ *  HCAD's shape is consistent and comma-delimited: "STREET…, CITY, ST ZIP",
+ *  where the last segment is "ST ZIP[-####]". The old split-on-first-comma
+ *  approach leaked zips and states into the city (and a trailing-dash zip
+ *  like "77082-" garbled addressLine2 into "HOUSTON, TX 77082-, TX ", which
+ *  cost real matches — verified against the live API 2026-07-05). Work from
+ *  the RIGHT: last segment = state+zip, next = city, the rest = street. */
 function splitAddress(addr: string | null): { street: string; city: string; state: string; zip: string } | null {
   if (!addr) return null;
-  const zip = addr.match(/\b(\d{5})(-\d{4})?\s*$/)?.[1] ?? "";
-  const [street, ...rest] = addr.split(",");
-  const tail = rest.join(",").replace(/\b\d{5}(-\d{4})?\s*$/, "").trim();
-  const state = tail.match(/\b([A-Z]{2})\s*$/)?.[1] ?? "TX";
-  const city = tail.replace(/\b[A-Z]{2}\s*$/, "").trim() || "HOUSTON";
-  return { street: street.trim(), city, state, zip };
+  const segs = addr.split(",").map((s) => s.trim()).filter(Boolean);
+  if (!segs.length) return null;
+  // Last segment is the "ST ZIP[-####]" tail — read state and zip from THERE,
+  // never from the whole string (a street number like "11635 …" is 5 digits
+  // too and would otherwise be mistaken for the zip).
+  const last = segs[segs.length - 1];
+  const state = last.match(/\b([A-Z]{2})\b/)?.[1] ?? "TX";
+  const zip = last.match(/\b(\d{5})(?:-\d{0,4})?\b/)?.[1] ?? "";
+  // City is the segment before the state/zip tail (when there is one).
+  const city = segs.length >= 3 ? segs[segs.length - 2] : segs.length === 2 ? segs[0] : "HOUSTON";
+  // Street is everything before the city (rejoined), or the first segment.
+  const street = segs.length >= 3 ? segs.slice(0, segs.length - 2).join(", ") : segs[0];
+  return { street, city, state, zip };
+}
+
+/** Build the address line the provider matches on: "City, ST Zip" with no
+ *  stray commas or empty fields. */
+function addressLine2(a: { city: string; state: string; zip: string }): string {
+  return [a.city, [a.state, a.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ");
 }
 
 // ── MOCK ──────────────────────────────────────────────────────────────────
@@ -215,7 +249,7 @@ function enformionProvider(apName: string, apPassword: string): SkipTraceProvide
         body: JSON.stringify({
           FirstName: name.first ?? "",
           LastName: name.last,
-          Address: mail ? { addressLine1: mail.street, addressLine2: `${mail.city}, ${mail.state} ${mail.zip}` } : undefined,
+          Address: mail ? { addressLine1: mail.street, addressLine2: addressLine2(mail) } : undefined,
         }),
         signal: AbortSignal.timeout(20_000),
       });

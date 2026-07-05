@@ -373,13 +373,28 @@ card shows dialable tel: primary, locked DNC row, calling-hours line,
 email note; zero console errors; screenshot. All CRM writes stayed on
 505 Westcott (which now carries labeled mock numbers — harmless, aids
 demos; team deletes via UI whenever).
-**USER ACTION (to go live with real traces): pick a provider and add its
-key both to `hvi/.env` and via `wrangler secret put` in apps/worker —
-BatchData: `SKIPTRACE_BATCHDATA_API_KEY`; or EnformionGO trial:
-`SKIPTRACE_ENFORMION_AP_NAME` + `SKIPTRACE_ENFORMION_AP_PASSWORD`
-(optional `SKIPTRACE_PROVIDER=batchdata|enformion|mock` to force one).
-Then tell the next session to run one real trace against the test lead's
-owner (max 5 calls) to validate the untested vendor client.**
+**✅ USER ACTION RESOLVED same day — ENFORMION IS LIVE (2026-07-05):**
+Fernando signed up for EnformionGO (2,000 free requests/mo, then
+$0.25/match on Contact Enrich); keys in `hvi/.env` (gitignored, verified)
+and `wrangler secret put` × 2; provider auto-switched off mock. The
+"untested scaffold" was validated with 4 real calls (budget 5): (1–2)
+misses on a name I ordered wrong MANUALLY — lesson: HCAD owner strings
+are LAST FIRST MIDDLE and `splitOwnerName()` handles it correctly, my
+hand-built curl didn't; (3) full match on a real 33-yr-hold prospect —
+age, address history INCLUDING the subject parcel (proof of right
+person), 5 phones w/ type+connected+recency, 4 emails; (4) PROD E2E
+through the Workers runtime on the TEST lead: matched the owner at the
+mailing address, wrote 5 phones + 2 emails into the CRM. Client upgraded
+from the real response shape: per-number confidence from recency
+(≤3yr connected = 0.85; stale connected 0.55; disconnected 0.25),
+freshest-first ordering, matched-person name → `contact_name` (card
+attribution). Mock entries cleaned off the test lead; real ones remain.
+HONESTY LINE baked in: Enformion results are NOT DNC-screened — Jarvo
+says so and the manual-dial/8am–9pm discipline stands. Enformion misses
+("No strong matches") are spoken plainly and cost only the request.
+STILL OWED: these keys passed through chat — regenerate the Enformion
+key in the portal (Apps → API → Keys) and re-put when convenient (same
+bucket as the other chat-exposed secrets).
 
 **✅ PROPENSITY ENGINE v1 (2026-07-05, NEXT-HORIZON §6 item 2):** the county
 funnel is live. `tools/propensityScore.ts` — ONE shared transparent

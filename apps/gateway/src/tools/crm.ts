@@ -439,7 +439,7 @@ async function readPhonesRow(
 export async function writeTracedContacts(
   leadId: string,
   traced: {
-    phones: Array<{ number: string; type: string | null; confidence: number | null; dnc: boolean }>;
+    phones: Array<{ number: string; type: string | null; confidence: number | null; dnc: boolean; contactName?: string | null }>;
     emails: string[];
     provider: string;
   }
@@ -465,7 +465,7 @@ export async function writeTracedContacts(
       bad_reason: null,
       confidence: t.confidence,
       accepted_at: now,
-      contact_name: null,
+      contact_name: t.contactName ?? null,
       marked_bad_at: null,
       marked_bad_by: null,
       dnc: t.dnc,

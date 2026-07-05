@@ -28,6 +28,8 @@ export type TracedPhone = {
   /** On the National Do-Not-Call registry (or provider's DNC flag).
    *  false also covers "provider doesn't check" — see result.dncChecked. */
   dnc: boolean;
+  /** The person the provider matched this number to, when known. */
+  contactName: string | null;
 };
 
 export type TraceResult = {
@@ -95,10 +97,10 @@ const mockProvider: SkipTraceProvider = {
       mock: true,
       confidence: 0.87,
       phones: [
-        { number: num(h), type: "mobile", confidence: 0.9, dnc: false },
+        { number: num(h), type: "mobile", confidence: 0.9, dnc: false, contactName: null },
         // Second number rides in DNC-flagged so the compliance rendering
         // (locked card row, DO-NOT-DIAL call-sheet line) stays exercised.
-        { number: num(h + 37), type: "landline", confidence: 0.6, dnc: true },
+        { number: num(h + 37), type: "landline", confidence: 0.6, dnc: true, contactName: null },
       ],
       emails: [`${slug || "owner"}@example.com`],
       dncChecked: true,
@@ -147,6 +149,7 @@ function batchDataProvider(apiKey: string): SkipTraceProvider {
           type: p.type ?? null,
           confidence: typeof p.score === "number" ? (p.score > 1 ? p.score / 100 : p.score) : null,
           dnc: Boolean(p.dnc),
+          contactName: null,
         }));
       const emails = (person?.emails ?? [])
         .map((e) => (typeof e === "string" ? e : (e.email ?? "")))
@@ -164,7 +167,12 @@ function batchDataProvider(apiKey: string): SkipTraceProvider {
   };
 }
 
-// ── EnformionGO / Endato (UNTESTED scaffold — per-call person search) ─────
+// ── EnformionGO / Endato — per-call Contact Enrich ($0.25/match) ──────────
+// VALIDATED LIVE 2026-07-05 against a real Harris County owner: response is
+// {person: {name, age, addresses[], phones[{number,type,isConnected,
+// first/lastReportedDate}], emails[{email,isValidated,isBusiness}]}}, or
+// {message:"No strong matches"} with no person. Misses cost nothing spoken —
+// the tool reports them honestly. NOT DNC-screened (note rides along).
 
 function enformionProvider(apName: string, apPassword: string): SkipTraceProvider {
   return {
@@ -186,34 +194,70 @@ function enformionProvider(apName: string, apPassword: string): SkipTraceProvide
           LastName: name.last,
           Address: mail ? { addressLine1: mail.street, addressLine2: `${mail.city}, ${mail.state} ${mail.zip}` } : undefined,
         }),
+        signal: AbortSignal.timeout(20_000),
       });
       if (!res.ok) throw new Error(`Enformion ${res.status}: ${(await res.text()).slice(0, 200)}`);
       const data = (await res.json()) as {
+        isError?: boolean;
+        message?: string;
+        error?: { message?: string };
         person?: {
-          phones?: Array<{ number?: string; phoneNumber?: string; type?: string; isConnected?: boolean }>;
-          emails?: Array<{ email?: string } | string>;
+          name?: { firstName?: string; middleName?: string; lastName?: string };
+          phones?: Array<{
+            number?: string;
+            phoneNumber?: string;
+            type?: string;
+            isConnected?: boolean;
+            lastReportedDate?: string;
+          }>;
+          emails?: Array<{ email?: string; isValidated?: boolean } | string>;
         };
       };
-      const phones: TracedPhone[] = (data.person?.phones ?? [])
+      if (data.isError) throw new Error(`Enformion: ${data.error?.message ?? "request error"}`);
+      const person = data.person;
+      const matchedName = person?.name
+        ? [person.name.firstName, person.name.middleName, person.name.lastName].filter(Boolean).join(" ") || null
+        : null;
+      // Confidence from the provider's own evidence: a connected number
+      // reported within the last ~3 years is gold; connected-but-stale is a
+      // coin flip; disconnected is a long shot.
+      const yearsSince = (d?: string) => {
+        if (!d) return null;
+        const t = new Date(d).getTime();
+        return Number.isFinite(t) ? (Date.now() - t) / 31557600000 : null;
+      };
+      const phones: TracedPhone[] = (person?.phones ?? [])
         .map((p) => ({ raw: p, number: p.number ?? p.phoneNumber ?? "" }))
         .filter((p) => p.number)
-        .map((p) => ({
-          number: p.number,
-          type: p.raw.type ?? null,
-          confidence: p.raw.isConnected === true ? 0.8 : p.raw.isConnected === false ? 0.3 : null,
-          dnc: false, // Enformion contact-enrich does NOT screen DNC
-        }));
-      const emails = (data.person?.emails ?? [])
+        .map((p) => {
+          const age = yearsSince(p.raw.lastReportedDate);
+          const confidence =
+            p.raw.isConnected === false ? 0.25 : age != null && age <= 3 ? 0.85 : p.raw.isConnected ? 0.55 : 0.4;
+          return {
+            number: p.number,
+            type: p.raw.type ?? null,
+            confidence,
+            dnc: false, // Enformion contact-enrich does NOT screen DNC
+            contactName: matchedName,
+            _age: age ?? 99,
+          };
+        })
+        // Freshest evidence first — the top number becomes the de facto primary.
+        .sort((a, b) => a._age - b._age)
+        .map(({ _age, ...p }) => p);
+      const emails = (person?.emails ?? [])
         .map((e) => (typeof e === "string" ? e : (e.email ?? "")))
         .filter(Boolean);
       return {
         provider: "enformion",
         mock: false,
-        confidence: phones.length || emails.length ? 0.7 : null,
+        confidence: person ? (phones.some((p) => (p.confidence ?? 0) >= 0.85) ? 0.85 : 0.7) : null,
         phones,
         emails,
         dncChecked: false,
-        note: "Enformion person search — numbers are NOT DNC-screened; scrub against the national and Texas DNC lists before any campaign dialing.",
+        note: person
+          ? `matched ${matchedName ?? "a person"} at the mailing address — numbers are NOT DNC-screened; the card flags nothing until a scrub, so dial manually and honor any do-not-call ask immediately.`
+          : `Enformion found no strong match for this owner (${data.message ?? "no person returned"}) — no charge on a miss beyond the request; the letter channel still works.`,
       };
     },
   };

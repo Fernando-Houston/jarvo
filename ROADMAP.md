@@ -363,7 +363,7 @@ webpush.ts` (VAPID ES256 JWT + RFC 8291 aes128gcm on WebCrypto); routes
 subject in wrangler secrets, public key in [vars]. Voice: `nightly_digest`
 tool (+ rules trigger /digest|overnight|what's new/) reads the stored run or
 sweeps live. Web: `sw.js` + `lib/push.ts` + "alerts" HUD button; PWA
-manifest + orb icon added (iOS push needs home-screen install). Worker now
+manifest + orb icon added (iOS push needs home-screen install; real app icon — the Jarvo bull — added 2026-07-04, PNGs at 512/192/180 + apple-touch-icon). Worker now
 typechecks (`tsconfig.json` + workers-types were missing). VERIFIED: local
 digest run (4 fresh deeds, 6 areas, dedup on 2nd run) · prod `/digest/run`
 + KV persistence across isolates · WS E2E on the cloud gateway ("what's new
@@ -371,7 +371,7 @@ overnight?" → Claude called nightly_digest → honest quiet-night answer +
 250KB TTS) · subscribe/unsubscribe roundtrip · manifest live.
 **USER ACTION: on each phone, open jarvo.pages.dev (iPhone: add to Home
 Screen first), tap "alerts", allow notifications — then the 7am digest
-lands as a push.** Proper PNG icons still open. Push delivery to a real
+lands as a push.** Push delivery to a real
 device untested until someone subscribes.
 
 **✅ TIME MACHINE SNAPSHOTS (2026-07-04, INTELLIGENCE-ROADMAP §5 #2) — KV

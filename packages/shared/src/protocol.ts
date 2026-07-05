@@ -51,6 +51,8 @@ export type ParcelVisual = {
       contactName: string | null;
       source: string | null;
       confidence: number | null;
+      /** Do-Not-Call registry flag — renders locked, never dialable. */
+      dnc?: boolean;
     }>;
     primaryPhone: string | null;
     contactInfo: string | null;

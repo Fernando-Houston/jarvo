@@ -6,7 +6,8 @@
 > Companion docs: `README.md` (run instructions), `../VISION.md`, `../PROJECT-BRIEF.md`,
 > `INTELLIGENCE-ROADMAP.md` (strategy), `NEXT-HORIZON.md` (contact engine at county
 > scale + full gap audit — START THE NEXT BUILD SESSION THERE), `TEAM-GUIDE.md`.
-> Last updated: 2026-07-03.
+> Last updated: 2026-07-05 (contact engine v1 shipped — see the
+> CONTACT ENGINE entry; next: NEXT-HORIZON §6 items 2–3).
 
 ---
 
@@ -322,6 +323,65 @@ restore path — **HCAD county GIS went DOWN mid-verification (direct curl
 timeout), and Jarvo degraded honestly ("three timeouts in a row — the HCAD
 connection is hanging, not you")**; live-path retest when county returns is
 the same code path already proven pre-outage.
+
+**✅ CONTACT ENGINE v1 (2026-07-05, NEXT-HORIZON §6 item 1 — all five
+pieces):** trace on intent, never inventory. (1)
+`providers/skiptrace.ts` — provider-agnostic `trace(ownerName,
+mailingAddress) → {phones[dnc], emails, confidence}`; resolution:
+SKIPTRACE_PROVIDER override → BatchData key → Enformion keys → **MOCK
+provider** (no key exists yet): deterministic fabricated data in the
+reserved 555-01xx block, loudly labeled in every result AND in speech;
+BatchData/Enformion clients are UNTESTED doc-based scaffolds that fail
+loud. (2) `skip_trace(hcad_account)` tool — CRM-FIRST (existing dialable
+numbers returned free, "never pay twice"; `force` re-traces on explicit
+ask), requires the parcel to already be a lead (offers to save it
+otherwise), write-back into the CRM `phones` JSONB in the team's EXACT
+enrichment shape (type/label/notes/number/source:"skiptrace:<provider>"/
+status/bad_reason/confidence/accepted_at/contact_name/marked_bad_*) plus
+new `dnc` flag; emails append to `contact_info` until the CRM grows an
+email column. **Mock write guard: fabricated data only ever writes to the
+505 Westcott test lead** — on any other lead the trace speaks but writes
+nothing. (3) Compliance (§1.5): `dnc` per number end-to-end (LeadPhone →
+ParcelVisual.contacts → card); DNC + bad numbers render UNCLICKABLE
+(struck, amber "DO NOT CALL · DNC registry", cursor not-allowed); card
+gained a "Calling hours: 8am–9pm · manual dial only" line; call-sheet
+DIAL header now opens with the exact line "Calling hours: 8am–9pm owner's
+local time. Manual dial only — no texting." and every bad/DNC number gets
+its own "DO NOT DIAL: <n> — <reason>" line; a primary gone bad/DNC never
+leads the DIAL list; crm_lead_check splits good/dnc/bad phone lists for
+the model. NO texting features, by design. (4) Call-outcome logging —
+`log_call_outcome` tool + rules trigger ("log that call — no answer /
+wrong number / talked to them", optional "ending 1234" targeting):
+updates the number IN the phones JSONB (last_outcome/last_outcome_at/
+attempts; wrong/bad → status bad + bad_reason + marked_bad_by=bot) and
+files a note so latest_activity_at moves. (5) Digest hook — nightly sweep
+now scores non-lead parcels near the top 3 areas (reused signals:
+teardown ratio +40, absentee +25, 15yr hold +15, ESTATE name +30, tax
+suit +35; floor 40; transparent weighted sum, every component speakable),
+stores top 5 at KV `digest:trace:v1`, digest offers "want me to trace the
+top 3? Only on your say-so" — `trace_top_candidates` (saves each as a
+lead + traces) runs ONLY on the user's explicit yes. VERIFIED: local
+tool-layer suite on the TEST lead (write-back shape matches prod rows
+byte-for-byte; CRM-first; outcomes; seeded trace_top_candidates;
+call-sheet DIAL header + DO-NOT-DIAL lines rendered by Opus), rules-brain
+trigger routing, prod digest run (5 real 80-point candidates found near
+Westcott/Adele, offer bullet + push delivered), CLOUD E2E on the deployed
+gateway (Claude chained skip_trace honestly: "no point paying twice" →
+forced re-trace disclosed "mock provider — fabricated test data" → logged
+no-answer → digest trace offer with consent framing), and REAL BROWSER:
+card shows dialable tel: primary, locked DNC row, calling-hours line,
+email note; zero console errors; screenshot. All CRM writes stayed on
+505 Westcott (which now carries labeled mock numbers — harmless, aids
+demos; team deletes via UI whenever).
+**USER ACTION (to go live with real traces): pick a provider and add its
+key both to `hvi/.env` and via `wrangler secret put` in apps/worker —
+BatchData: `SKIPTRACE_BATCHDATA_API_KEY`; or EnformionGO trial:
+`SKIPTRACE_ENFORMION_AP_NAME` + `SKIPTRACE_ENFORMION_AP_PASSWORD`
+(optional `SKIPTRACE_PROVIDER=batchdata|enformion|mock` to force one).
+Then tell the next session to run one real trace against the test lead's
+owner (max 5 calls) to validate the untested vendor client.** Also still
+owed from §6: propensity engine v1 as a nightly scored hot_list (the
+digest scan is the seed), code-violations connect.
 
 ### P2-7 · Claude brain burn-in (WHEN CREDITS LAND) — first restart gateway, then:
 - Run multi-turn suite: follow-ups ("who owns it" after "what's it worth"),

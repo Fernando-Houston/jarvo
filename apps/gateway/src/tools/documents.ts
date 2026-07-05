@@ -54,7 +54,7 @@ SIGNALS:
 TALKING POINTS:
 LIKELY OBJECTIONS:
 THE ASK:
-DIAL lists the phone numbers exactly as provided: the primary first, then other good numbers with who they belong to, then any marked bad on one line as "DO NOT DIAL: ..." with the reason. If no numbers are provided, DIAL says "No number on file — enrichment pending." Every fact must come from the provided data — never invent. Keep each section to 1-3 tight lines. Where a signal is sensitive (tax suit), phrase the talking point so the CALLER knows it but would never say it ("motivated timeline likely — do not raise taxes"). Under 220 words.`,
+DIAL's first line is always exactly: "Calling hours: 8am–9pm owner's local time. Manual dial only — no texting." Then the phone numbers exactly as provided: the primary first, then other good numbers with who they belong to, then EVERY number marked bad or Do-Not-Call on its own line as "DO NOT DIAL: <number> — <reason>". If no numbers are provided, DIAL says "No number on file — enrichment pending." Every fact must come from the provided data — never invent. Keep each section to 1-3 tight lines. Where a signal is sensitive (tax suit), phrase the talking point so the CALLER knows it but would never say it ("motivated timeline likely — do not raise taxes"). Under 220 words.`,
 
   offer_summary: `You write offer summaries for Houston Land Group. Plain text, no markdown. Use these exact section headers:
 PROPERTY:

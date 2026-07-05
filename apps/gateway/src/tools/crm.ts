@@ -64,6 +64,8 @@ export type LeadPhone = {
   contactName: string | null;
   source: string | null;
   confidence: number | null;
+  /** On the Do-Not-Call registry (per the trace provider) — visible, never dialable. */
+  dnc: boolean;
 };
 
 export type LeadContacts = {
@@ -134,6 +136,7 @@ function parseContacts(d: Record<string, unknown>): LeadContacts | null {
       contactName: p.contactName ?? null,
       source: p.source ?? null,
       confidence: p.confidence ?? null,
+      dnc: p.dnc ?? false,
     });
   };
   if (Array.isArray(d.phones)) {
@@ -145,6 +148,7 @@ function parseContacts(d: Record<string, unknown>): LeadContacts | null {
         contactName: (raw.contact_name as string) ?? null,
         source: (raw.source as string) ?? null,
         confidence: typeof raw.confidence === "number" ? raw.confidence : null,
+        dnc: raw.dnc === true,
       });
     }
   }
@@ -154,14 +158,15 @@ function parseContacts(d: Record<string, unknown>): LeadContacts | null {
   const primary = (d.preferred_phone ?? d.primary_phone) as string | null;
   const contactInfo = (d.contact_info as string | null)?.trim() || null;
   if (!phones.length && !contactInfo) return null;
-  // Good numbers first, primary at the very front; bad ones sink to the end.
+  // Good numbers first, primary at the very front; DNC then bad sink to the end.
   phones.sort((a, b) => {
-    const rank = (p: LeadPhone) => (p.number === primary ? 0 : p.status === "bad" ? 2 : 1);
+    const rank = (p: LeadPhone) =>
+      p.status === "bad" ? 3 : p.dnc ? 2 : p.number === primary ? 0 : 1;
     return rank(a) - rank(b);
   });
   return {
     phones,
-    primaryPhone: primary ?? phones.find((p) => p.status !== "bad")?.number ?? null,
+    primaryPhone: primary ?? phones.find((p) => p.status !== "bad" && !p.dnc)?.number ?? null,
     contactInfo,
     source: (d.contact_source as string) ?? null,
     matchConfidence: typeof d.contact_match_confidence === "number" ? d.contact_match_confidence : null,
@@ -390,4 +395,130 @@ export async function updateStatus(
   // Note: the CRM has its own trigger that appends to lead_status_history on
   // status updates (verified in prod) — no manual history insert needed.
   return { from, to: status };
+}
+
+// ── Contact engine: skip-trace write-back + call-outcome logging ───────────
+// The phones JSONB entry shape below is EXACTLY what the team's enrichment
+// pipeline and CRM UI already write/read (verified against prod rows):
+// {type,label,notes,number,source,status,bad_reason,confidence,accepted_at,
+//  contact_name,marked_bad_at,marked_bad_by} — we add `dnc` (boolean), which
+// rides along harmlessly for the CRM UI and drives Jarvo's no-dial rendering.
+
+const digitsOf = (n: string) => n.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "");
+
+type PhoneRow = Record<string, unknown> & { number?: string };
+
+async function readPhonesRow(
+  db: SupabaseClient,
+  leadId: string
+): Promise<{ phones: PhoneRow[]; contactInfo: string | null }> {
+  const { data, error } = await db
+    .from("leads")
+    .select("phones,contact_info")
+    .eq("id", leadId)
+    .single();
+  if (error) throw new Error(`CRM phones read failed: ${error.message}`);
+  return {
+    phones: Array.isArray(data.phones) ? (data.phones as PhoneRow[]) : [],
+    contactInfo: (data.contact_info as string | null) ?? null,
+  };
+}
+
+/** Merge a skip-trace result into the lead: new numbers append to the phones
+ *  JSONB in the team's shape; emails land in contact_info (the CRM has no
+ *  structured email column yet). Existing numbers are never duplicated or
+ *  overwritten — the team's outcome history on them is the asset. */
+export async function writeTracedContacts(
+  leadId: string,
+  traced: {
+    phones: Array<{ number: string; type: string | null; confidence: number | null; dnc: boolean }>;
+    emails: string[];
+    provider: string;
+  }
+): Promise<{ phonesAdded: number; phonesAlreadyKnown: number; emailsAdded: number }> {
+  const db = await getClient();
+  if (!db) throw new Error("CRM not connected");
+  const { phones, contactInfo } = await readPhonesRow(db, leadId);
+  const known = new Set(phones.map((p) => digitsOf(String(p.number ?? ""))).filter(Boolean));
+  const now = new Date().toISOString();
+  let added = 0;
+  for (const t of traced.phones) {
+    const d = digitsOf(t.number);
+    if (!d || known.has(d)) continue;
+    known.add(d);
+    added++;
+    phones.push({
+      type: t.type,
+      label: null,
+      notes: null,
+      number: t.number,
+      source: `skiptrace:${traced.provider}`,
+      status: null,
+      bad_reason: null,
+      confidence: t.confidence,
+      accepted_at: now,
+      contact_name: null,
+      marked_bad_at: null,
+      marked_bad_by: null,
+      dnc: t.dnc,
+    });
+  }
+  // Emails: contact_info free text until the CRM grows an email column.
+  const freshEmails = traced.emails.filter((e) => e && !(contactInfo ?? "").includes(e));
+  let newInfo = contactInfo;
+  if (freshEmails.length) {
+    const line = `Emails (skip trace ${traced.provider} ${now.slice(0, 10)}): ${freshEmails.join(", ")}`;
+    newInfo = contactInfo ? `${contactInfo}\n${line}` : line;
+  }
+  if (added || freshEmails.length) {
+    const { error } = await db
+      .from("leads")
+      .update({ phones, ...(newInfo !== contactInfo ? { contact_info: newInfo } : {}) })
+      .eq("id", leadId);
+    if (error) throw new Error(`CRM trace write-back failed: ${error.message}`);
+  }
+  return { phonesAdded: added, phonesAlreadyKnown: traced.phones.length - added, emailsAdded: freshEmails.length };
+}
+
+export type CallOutcome = "no_answer" | "wrong_number" | "bad_number" | "talked";
+
+/** Update one number's status in the phones JSONB from a spoken call outcome
+ *  ("log that call — no answer"). Every call makes the dataset smarter. */
+export async function logCallOutcome(
+  leadId: string,
+  outcome: CallOutcome,
+  matchDigits: string | null
+): Promise<{ ok: true; number: string; nowMarked: string } | { ok: false; reason: string }> {
+  const db = await getClient();
+  if (!db) return { ok: false, reason: "CRM not connected" };
+  const { phones } = await readPhonesRow(db, leadId);
+  if (!phones.length) return { ok: false, reason: "no phone numbers on file for this lead" };
+  // Which number? Explicit digits win (suffix match); otherwise the first
+  // number still worth dialing; otherwise the first, so the log lands somewhere.
+  let entry: PhoneRow | undefined;
+  if (matchDigits) {
+    entry = phones.find((p) => digitsOf(String(p.number ?? "")).endsWith(matchDigits));
+    if (!entry) return { ok: false, reason: `no number ending in ${matchDigits} on file` };
+  } else {
+    entry = phones.find((p) => p.status !== "bad" && p.dnc !== true) ?? phones[0];
+  }
+  const now = new Date().toISOString();
+  entry.last_outcome = outcome;
+  entry.last_outcome_at = now;
+  entry.attempts = (typeof entry.attempts === "number" ? entry.attempts : 0) + 1;
+  let nowMarked = "logged";
+  if (outcome === "wrong_number" || outcome === "bad_number") {
+    entry.status = "bad";
+    entry.bad_reason = outcome === "wrong_number" ? "wrong_number" : "disconnected";
+    entry.marked_bad_at = now;
+    entry.marked_bad_by = botUserId;
+    nowMarked = "marked bad — it won't be dialed again";
+  } else if (outcome === "talked") {
+    nowMarked = "logged as a live conversation";
+  } else {
+    nowMarked = "logged as no answer";
+  }
+  const { error } = await db.from("leads").update({ phones }).eq("id", leadId);
+  if (error) return { ok: false, reason: `CRM outcome write failed: ${error.message}` };
+  return { ok: true, number: String(entry.number ?? ""), nowMarked };
 }

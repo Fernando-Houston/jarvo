@@ -43,6 +43,12 @@ type Env = {
   VAPID_PUBLIC_KEY?: string;
   VAPID_PRIVATE_KEY?: string;
   VAPID_SUBJECT?: string;
+  /** Skip-trace provider (contact engine). None set = clearly-labeled MOCK
+   *  provider, which only ever writes to the 505 Westcott test lead. */
+  SKIPTRACE_PROVIDER?: string;
+  SKIPTRACE_BATCHDATA_API_KEY?: string;
+  SKIPTRACE_ENFORMION_AP_NAME?: string;
+  SKIPTRACE_ENFORMION_AP_PASSWORD?: string;
 };
 
 /** Gateway code reads process.env (Node style); mirror the Worker env into

@@ -50,6 +50,9 @@ const TOOL_LABELS: Record<string, string> = {
   file_document: "filing to the CRM…",
   city_overlays: "checking city overlays…",
   where_is_this: "reading the ground…",
+  skip_trace: "tracing the owner…",
+  log_call_outcome: "logging the call…",
+  trace_top_candidates: "saving and tracing candidates…",
 };
 
 type SpeechRecognitionLike = {

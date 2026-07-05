@@ -8,8 +8,9 @@
 // "Fresh" means fresh TO US — newly visible in the snapshot since the last
 // sweep — not "recorded last night".
 
-import { listLeads } from "./crm";
-import { lookupByAccount, lookupRecentTransfers, type Parcel } from "./hcad";
+import { listLeads, LEAD_STATUSES } from "./crm";
+import { lookupByAccount, lookupNeighbors, lookupRecentTransfers, type Parcel } from "./hcad";
+import { institutionalOwner } from "./entity";
 import { taxSaleNear, type TaxSaleRecord } from "./taxsale";
 
 /** Minimal async KV surface — Workers KV in the cloud, in-memory in Node dev. */
@@ -32,8 +33,14 @@ export function digestStore(): DigestStore {
 
 const SEEN_KEY = "digest:seen:v1";
 const LATEST_KEY = "digest:latest:v1";
+const TRACE_KEY = "digest:trace:v1";
 const SWEEP_RADIUS_M = 1600;
 const MAX_AREAS = 6;
+/** Propensity scan is a subrequest budget item — only the hottest areas. */
+const MAX_TRACE_AREAS = 3;
+const MAX_TRACE_CANDIDATES = 5;
+/** Minimum propensity score to be worth offering a paid trace on. */
+const TRACE_SCORE_FLOOR = 40;
 
 export type Digest = {
   generatedAt: string;
@@ -49,8 +56,66 @@ export type Digest = {
     freshTransfers: number;
     freshDistress: number;
     firstRun: boolean;
+    /** High-propensity non-lead parcels stored for the "trace the top N" offer. */
+    traceCandidates?: number;
   };
 };
+
+/** A parcel worth paying to trace: near the pipeline, scoring high on the
+ *  sell-propensity signals, and NOT already a lead. Tracing only ever runs
+ *  when the user says yes (trace_top_candidates) — never in the sweep. */
+export type TraceCandidate = {
+  hcadAccount: string;
+  address: string | null;
+  owner: string | null;
+  nearLead: string | null;
+  score: number;
+  /** Speakable reasons, e.g. "building 6% of value", "absentee 22 years". */
+  reasons: string[];
+};
+
+export async function getTraceCandidates(
+  store: DigestStore = digestStore()
+): Promise<{ generatedAt: string; candidates: TraceCandidate[] } | null> {
+  const raw = await store.get(TRACE_KEY);
+  return raw ? (JSON.parse(raw) as { generatedAt: string; candidates: TraceCandidate[] }) : null;
+}
+
+/** Sell-propensity score from the signals already proven in the tool layer
+ *  (teardown ratio, absentee, hold length, estate names, tax distress).
+ *  Transparent weighted sum — every component speakable, never a black box. */
+function scoreParcel(p: Parcel, inTaxPipeline: boolean): { score: number; reasons: string[] } {
+  const reasons: string[] = [];
+  let score = 0;
+  const ratio =
+    p.appraisedValue && p.appraisedValue > 30_000 && p.buildingValue != null && p.buildingValue > 0
+      ? p.buildingValue / p.appraisedValue
+      : null;
+  if (ratio != null && ratio < 0.15 && (p.lotSqft ?? 0) >= 3000) {
+    score += 40;
+    reasons.push(`building ${Math.round(ratio * 100)}% of value`);
+  }
+  if (p.absenteeOwner) {
+    score += 25;
+    reasons.push("absentee owner");
+  }
+  const heldYears = p.ownedSince
+    ? Math.floor((Date.now() - new Date(p.ownedSince + "T00:00:00Z").getTime()) / 31557600000)
+    : null;
+  if (heldYears != null && heldYears >= 15) {
+    score += 15;
+    reasons.push(`held ${heldYears} years`);
+  }
+  if (/\bESTATE\b/i.test(p.ownerName ?? "")) {
+    score += 30;
+    reasons.push("estate on title");
+  }
+  if (inTaxPipeline) {
+    score += 35;
+    reasons.push("in the tax-suit pipeline");
+  }
+  return { score, reasons };
+}
 
 function money(n: number | null): string {
   if (n == null) return "";
@@ -102,6 +167,9 @@ export async function runNightlyDigest(store: DigestStore = digestStore()): Prom
   let areasSwept = 0;
   let freshTransfers = 0;
   let freshDistress = 0;
+  /** Hydrated area subjects + their tax-distress accounts, reused by the
+   *  propensity scan below so it costs no extra HCAD/LGBS calls per signal. */
+  const sweptAreas: Array<{ leadAddress: string | null; subject: Parcel; distressAccounts: Set<string> }> = [];
   for (const lead of areas) {
     let subject: Parcel | null = null;
     let transfers: Parcel[] = [];
@@ -134,6 +202,11 @@ export async function runNightlyDigest(store: DigestStore = digestStore()): Prom
     } catch {
       /* LGBS hiccup — skip distress for this area */
     }
+    sweptAreas.push({
+      leadAddress: lead.address,
+      subject,
+      distressAccounts: new Set(distress.map((d) => d.hcadAccount)),
+    });
     const freshD = distress.filter((d) => !seen.has(`ts:${d.hcadAccount}:${d.saleType}`));
     for (const d of distress) seen.add(`ts:${d.hcadAccount}:${d.saleType}`);
     for (const d of (firstRun ? freshD.slice(0, 1) : freshD.slice(0, 3))) {
@@ -146,6 +219,49 @@ export async function runNightlyDigest(store: DigestStore = digestStore()): Prom
           "."
       );
     }
+  }
+
+  // ── Propensity scan (NEXT-HORIZON §1.2B): high-scoring NON-lead parcels
+  // near the hottest areas become a trace OFFER in the digest. No lead is
+  // created and no provider is called here — money and PII only move when
+  // the user says "trace the top N".
+  let traceCandidates: TraceCandidate[] = [];
+  try {
+    const allLeads = await listLeads([...LEAD_STATUSES], 500);
+    const leadAccounts = new Set(allLeads.map((l) => l.hcadAccount).filter(Boolean) as string[]);
+    const byAccount = new Map<string, TraceCandidate>();
+    for (const area of sweptAreas.slice(0, MAX_TRACE_AREAS)) {
+      let neighbors: Parcel[] = [];
+      try {
+        neighbors = await lookupNeighbors(area.subject, 800, 150);
+      } catch {
+        continue; // one area's HCAD hiccup shouldn't sink the scan
+      }
+      for (const p of neighbors) {
+        if (leadAccounts.has(p.hcadAccount) || byAccount.has(p.hcadAccount)) continue;
+        if (p.hcadAccount === area.subject.hcadAccount || institutionalOwner(p) || !p.ownerName) continue;
+        const { score, reasons } = scoreParcel(p, area.distressAccounts.has(p.hcadAccount));
+        if (score < TRACE_SCORE_FLOOR) continue;
+        byAccount.set(p.hcadAccount, {
+          hcadAccount: p.hcadAccount,
+          address: p.address,
+          owner: p.ownerName,
+          nearLead: area.leadAddress,
+          score,
+          reasons,
+        });
+      }
+    }
+    traceCandidates = [...byAccount.values()].sort((a, b) => b.score - a.score).slice(0, MAX_TRACE_CANDIDATES);
+    await store.put(TRACE_KEY, JSON.stringify({ generatedAt: new Date().toISOString(), candidates: traceCandidates }));
+    if (traceCandidates.length) {
+      const top = traceCandidates[0];
+      bullets.push(
+        `${traceCandidates.length} high-propensity owner${traceCandidates.length === 1 ? " is" : "s are"} un-traced near your pipeline — sharpest is ${shortAddr(top.address)} (${top.reasons.join(", ")}). Want me to trace the top ${Math.min(traceCandidates.length, 3)}? Only on your say-so.`
+      );
+    }
+  } catch {
+    /* propensity scan is a bonus — never sinks the digest */
   }
 
   if (addedThisWeek.length) {
@@ -192,6 +308,7 @@ export async function runNightlyDigest(store: DigestStore = digestStore()): Prom
       freshTransfers,
       freshDistress,
       firstRun,
+      traceCandidates: traceCandidates.length,
     },
   };
 

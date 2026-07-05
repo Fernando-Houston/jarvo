@@ -21,7 +21,8 @@ import { floodCheckParcel, type FloodInfo } from "./fema";
 import { chapter42Feasibility, type Ch42Result, type StreetType } from "./chapter42";
 import { cityOverlaysAt } from "./cityOverlays";
 import { groundAround } from "./ground";
-import { getLatestDigest, runNightlyDigest } from "./digest";
+import { getLatestDigest, getTraceCandidates, runNightlyDigest } from "./digest";
+import { skipTraceProvider } from "../providers/skiptrace";
 import { composeVerdict } from "./verdict";
 import { taxSaleCheck, taxSaleNear, TAX_SALE_SOURCE_NOTE, type TaxSaleRecord } from "./taxsale";
 import type { CompsVisual, GroundVisual, DocumentVisual } from "@hvi/shared";
@@ -35,7 +36,10 @@ import {
   findLeadByAccount,
   listLeads,
   normalizeStatus,
+  writeTracedContacts,
+  logCallOutcome,
   LEAD_STATUSES,
+  type CallOutcome,
 } from "./crm";
 import type { ParcelVisual } from "@hvi/shared";
 
@@ -82,6 +86,33 @@ async function resolveParcel(ctx: ToolContext, account: string): Promise<Parcel 
     ctx.memory.knownParcels.get(account) ??
     (await lookupByAccount(account))
   );
+}
+
+/** The 505 Westcott St test lead — the ONLY lead the mock skip-trace
+ *  provider is allowed to write test data into. */
+const MOCK_WRITE_TEST_LEAD = "0986620000107";
+
+/** Re-read a lead's contacts into session memory and repaint the card. */
+async function refreshLeadContacts(ctx: ToolContext, account: string): Promise<void> {
+  try {
+    const lc = await checkLead(account);
+    if ("found" in lc && lc.found) {
+      ctx.memory.leadStatusByAccount.set(account, lc.lead.status ?? "new");
+      if (lc.lead.contacts) {
+        const c = lc.lead.contacts;
+        ctx.memory.contactsByAccount.set(account, {
+          phones: c.phones,
+          primaryPhone: c.primaryPhone,
+          contactInfo: c.contactInfo,
+          needsReview: c.needsReview,
+        });
+      }
+    }
+  } catch {
+    /* card just keeps its previous contact state */
+  }
+  const parcel = await resolveParcel(ctx, account);
+  if (parcel) emitDecorated(ctx, [parcel]);
 }
 
 export const toolSchemas = [
@@ -379,6 +410,50 @@ export const toolSchemas = [
         hcad_account: { type: "string", description: "13-digit HCAD account number" },
       },
       required: ["hcad_account"],
+    },
+  },
+  {
+    name: "skip_trace",
+    description:
+      "Find phone numbers and emails for a parcel's owner (by 13-digit HCAD account) via the skip-trace provider, and write them into the CRM lead so the card, call sheets, and the CRM UI all light up. CRM-FIRST: numbers already on file are returned without paying for a new trace (pass force=true only when the user explicitly asks to re-trace). The parcel MUST already be a CRM lead — if it isn't, the result says so; offer to save it first. Traces cost money: call ONLY when the user explicitly asks to trace/find the owner's number. Speak results honestly: how many numbers, the confidence, DNC flags, and ALWAYS say when the result came from the mock (test-data) provider.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        hcad_account: { type: "string", description: "13-digit HCAD account of the lead to trace" },
+        force: { type: "boolean", description: "Re-trace even though numbers are already on file (explicit user ask only)" },
+      },
+      required: ["hcad_account"],
+    },
+  },
+  {
+    name: "log_call_outcome",
+    description:
+      'Log the outcome of a phone call to an owner ("log that call — no answer / wrong number / talked to them"): updates the number\'s status on the CRM lead so every call improves the data. wrong_number and bad_number mark the number bad — it will never be offered for dialing again. Call when the user reports how a call went.',
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        hcad_account: { type: "string", description: "13-digit HCAD account of the lead that was called" },
+        outcome: {
+          type: "string",
+          description: "no_answer (includes voicemail), wrong_number, bad_number (disconnected), or talked",
+        },
+        phone_last_digits: {
+          type: "string",
+          description: "Last few digits of the number dialed, when the user says them; otherwise the primary number is assumed",
+        },
+      },
+      required: ["hcad_account", "outcome"],
+    },
+  },
+  {
+    name: "trace_top_candidates",
+    description:
+      "Run the digest's standing trace offer: takes the top N high-propensity parcels the nightly sweep found near the pipeline, saves each as a CRM lead, and skip-traces its owner. Costs money per trace. ONLY call when the user explicitly says yes to tracing (e.g. 'trace the top three') — never on your own initiative.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        count: { type: "number", description: "How many of the top candidates to trace (default 3, max 5)" },
+      },
     },
   },
   {
@@ -797,13 +872,22 @@ async function executeToolInner(
           contacts:
             docType !== "letter" && contacts
               ? {
-                  primary: contacts.primaryPhone,
+                  // A primary that's gone bad/DNC never leads the DIAL list.
+                  primary: contacts.phones.some(
+                    (p) => p.number === contacts!.primaryPhone && (p.status === "bad" || p.dnc)
+                  )
+                    ? null
+                    : contacts.primaryPhone,
                   others: contacts.phones
-                    .filter((p) => p.status !== "bad" && p.number !== contacts!.primaryPhone)
+                    .filter((p) => p.status !== "bad" && !p.dnc && p.number !== contacts!.primaryPhone)
                     .map((p) => ({ number: p.number, belongsTo: p.contactName })),
+                  // DNC and bad numbers both surface as DO-NOT-DIAL lines.
                   bad: contacts.phones
-                    .filter((p) => p.status === "bad")
-                    .map((p) => ({ number: p.number, reason: p.badReason })),
+                    .filter((p) => p.status === "bad" || p.dnc)
+                    .map((p) => ({
+                      number: p.number,
+                      reason: p.status === "bad" ? p.badReason : "Do-Not-Call registry",
+                    })),
                   notes: contacts.contactInfo,
                 }
               : null,
@@ -1217,11 +1301,27 @@ async function executeToolInner(
           digest = await runNightlyDigest();
           freshlyRun = true;
         }
+        let traceOffer = null;
+        try {
+          traceOffer = await getTraceCandidates();
+        } catch {
+          /* offer just doesn't ride along */
+        }
         return JSON.stringify({
           generated_at: digest.generatedAt,
           swept_just_now: freshlyRun,
           bullets: digest.bullets,
           stats: digest.stats,
+          trace_candidates:
+            traceOffer?.candidates?.map((c) => ({
+              address: c.address,
+              owner: c.owner,
+              near_lead: c.nearLead,
+              score: c.score,
+              why: c.reasons.join(", "),
+            })) ?? [],
+          trace_note:
+            "tracing costs money and runs ONLY on the user's explicit yes ('trace the top three' → trace_top_candidates) — never offer-and-run in one breath",
           note: "deed dates are HCAD recordings, weeks-to-months behind the courthouse",
         });
       } catch (err) {
@@ -1295,11 +1395,12 @@ async function executeToolInner(
             contacts: c
               ? {
                   primary_phone: c.primaryPhone,
-                  good_phones: c.phones.filter((p) => p.status !== "bad").map((p) => ({ number: p.number, belongs_to: p.contactName, source: p.source, confidence: p.confidence })),
+                  good_phones: c.phones.filter((p) => p.status !== "bad" && !p.dnc).map((p) => ({ number: p.number, belongs_to: p.contactName, source: p.source, confidence: p.confidence })),
+                  dnc_phones: c.phones.filter((p) => p.status !== "bad" && p.dnc).map((p) => ({ number: p.number })),
                   bad_phones: c.phones.filter((p) => p.status === "bad").map((p) => ({ number: p.number, reason: p.badReason })),
                   contact_notes: c.contactInfo,
                   needs_review: c.needsReview,
-                  note: "from the team's CRM enrichment — NEVER dial numbers marked bad",
+                  note: "from the team's CRM enrichment — NEVER dial numbers marked bad, and NEVER dial dnc_phones (Do-Not-Call registry)",
                 }
               : null,
           },
@@ -1309,6 +1410,178 @@ async function executeToolInner(
         ctx.memory.contactsByAccount.delete(account);
       }
       return JSON.stringify(result);
+    }
+    case "skip_trace": {
+      const account = String(input.hcad_account ?? "");
+      const parcel = await resolveParcel(ctx, account);
+      if (!parcel) return JSON.stringify({ error: `No parcel found for HCAD ${account}` });
+      const lc = await checkLead(account);
+      if (!("found" in lc)) {
+        return JSON.stringify({ ok: false, reason: "CRM not connected — traced numbers would have nowhere to live." });
+      }
+      if (!lc.found) {
+        return JSON.stringify({
+          ok: false,
+          needs_lead: true,
+          address: parcel.address,
+          reason: `${parcel.address?.split(",")[0] ?? "That parcel"} isn't a CRM lead yet — traced contacts live on the lead. Offer to save it first, then trace.`,
+        });
+      }
+      // CRM-first: never pay twice. Numbers already on file win unless the
+      // user explicitly forces a fresh trace.
+      const existing = lc.lead.contacts?.phones ?? [];
+      const existingDialable = existing.filter((p) => p.status !== "bad" && !p.dnc);
+      if (existingDialable.length && !input.force) {
+        await refreshLeadContacts(ctx, account);
+        return JSON.stringify({
+          ok: true,
+          from_crm: true,
+          dialable_numbers_on_file: existingDialable.length,
+          numbers_marked_bad_or_dnc: existing.length - existingDialable.length,
+          primary: lc.lead.contacts?.primaryPhone ?? existingDialable[0].number,
+          note: "already on file in the CRM — no trace charged (never pay twice). They're on the card. Re-trace only on an explicit ask (force=true).",
+        });
+      }
+      if (!parcel.ownerName) {
+        return JSON.stringify({ ok: false, reason: "HCAD lists no owner name on this parcel — nothing to trace against." });
+      }
+      const provider = skipTraceProvider();
+      let traced;
+      try {
+        traced = await provider.trace(parcel.ownerName, parcel.mailingAddress, parcel.address);
+      } catch (err) {
+        return JSON.stringify({
+          ok: false,
+          provider: provider.name,
+          reason: `The ${provider.name} skip-trace provider didn't answer: ${err instanceof Error ? err.message : err}`,
+        });
+      }
+      const dncFlagged = traced.phones.filter((p) => p.dnc).length;
+      if (!traced.phones.length && !traced.emails.length) {
+        return JSON.stringify({
+          ok: true,
+          provider: provider.name,
+          mock_test_data: provider.mock,
+          phones_found: 0,
+          emails_found: 0,
+          note: `${provider.name} found nothing for this owner — no numbers, no emails. The letter (zero compliance risk) is the channel here. ${traced.note}`,
+        });
+      }
+      // Write-back guard: fabricated mock data never lands on a real lead.
+      let written = false;
+      let writeSummary: { phonesAdded: number; phonesAlreadyKnown: number; emailsAdded: number } | null = null;
+      let writeNote: string | null = null;
+      if (provider.mock && account !== MOCK_WRITE_TEST_LEAD) {
+        writeNote = "mock provider: test data is only ever written to the designated test lead, so NOTHING was saved to this lead's CRM record.";
+      } else {
+        try {
+          writeSummary = await writeTracedContacts(lc.lead.id, {
+            phones: traced.phones,
+            emails: traced.emails,
+            provider: provider.name,
+          });
+          written = true;
+        } catch (err) {
+          writeNote = `trace succeeded but the CRM write-back failed: ${err instanceof Error ? err.message : err}`;
+        }
+      }
+      await refreshLeadContacts(ctx, account);
+      return JSON.stringify({
+        ok: true,
+        provider: provider.name,
+        mock_test_data: provider.mock,
+        match_confidence: traced.confidence,
+        phones_found: traced.phones.length,
+        emails_found: traced.emails.length,
+        dnc_flagged: dncFlagged,
+        dnc_screened_by_provider: traced.dncChecked,
+        written_to_crm: written,
+        ...(writeSummary ?? {}),
+        ...(writeNote ? { write_note: writeNote } : {}),
+        compliance: "Manual tap-to-dial calls only, 8am–9pm local time; DNC-flagged numbers render locked and must never be dialed. No texting.",
+        note: traced.note,
+      });
+    }
+    case "log_call_outcome": {
+      const account = String(input.hcad_account ?? "");
+      const rawOutcome = String(input.outcome ?? "").toLowerCase().replace(/[\s-]+/g, "_");
+      const outcome: CallOutcome | null =
+        rawOutcome === "no_answer" || rawOutcome === "voicemail" || rawOutcome === "left_voicemail"
+          ? "no_answer"
+          : rawOutcome === "wrong_number"
+            ? "wrong_number"
+            : rawOutcome === "bad_number" || rawOutcome === "disconnected"
+              ? "bad_number"
+              : rawOutcome === "talked" || rawOutcome === "spoke" || rawOutcome === "connected"
+                ? "talked"
+                : null;
+      if (!outcome) {
+        return JSON.stringify({ ok: false, reason: "Outcome must be one of: no_answer, wrong_number, bad_number, talked." });
+      }
+      const lead = await findLeadByAccount(account);
+      if (!lead) return JSON.stringify({ ok: false, reason: "Not a lead in the CRM — no number to log against." });
+      const digits = String(input.phone_last_digits ?? "").replace(/\D/g, "") || null;
+      const res = await logCallOutcome(lead.id, outcome, digits);
+      if (!res.ok) return JSON.stringify(res);
+      try {
+        await addNote(
+          lead.id,
+          `Call logged via Jarvo${ctx.memory.user ? ` by ${ctx.memory.user}` : ""}: ${outcome.replace(/_/g, " ")} — ${res.number}`
+        );
+      } catch {
+        /* the phones update is the record that matters */
+      }
+      await refreshLeadContacts(ctx, account);
+      return JSON.stringify({ ok: true, number: res.number, result: res.nowMarked });
+    }
+    case "trace_top_candidates": {
+      const count = Math.min(Math.max(typeof input.count === "number" ? input.count : 3, 1), 5);
+      let stored;
+      try {
+        stored = await getTraceCandidates();
+      } catch {
+        stored = null;
+      }
+      if (!stored?.candidates?.length) {
+        return JSON.stringify({
+          ok: false,
+          reason: "No trace candidates on file — the nightly sweep builds that list. Ask for the digest first, or trace a specific parcel.",
+        });
+      }
+      const results: Array<Record<string, unknown>> = [];
+      for (const cand of stored.candidates.slice(0, count)) {
+        try {
+          const parcel = await resolveParcel(ctx, cand.hcadAccount);
+          if (!parcel) {
+            results.push({ address: cand.address, ok: false, reason: "parcel not found in HCAD" });
+            continue;
+          }
+          const saved = await ensureLead(parcel, {
+            note: `High-propensity candidate from the nightly sweep (score ${cand.score}: ${cand.reasons.join(", ")}) — saved for skip trace on user approval`,
+          });
+          if (!saved.ok) {
+            results.push({ address: cand.address, ok: false, reason: `couldn't save as lead: ${saved.reason}` });
+            continue;
+          }
+          ctx.memory.leadStatusByAccount.set(parcel.hcadAccount, "new");
+          const trace = JSON.parse(await executeTool("skip_trace", { hcad_account: cand.hcadAccount }, ctx));
+          results.push({
+            address: cand.address,
+            owner: cand.owner,
+            why: cand.reasons.join(", "),
+            lead_created: saved.created,
+            trace,
+          });
+        } catch (err) {
+          results.push({ address: cand.address, ok: false, reason: err instanceof Error ? err.message : String(err) });
+        }
+      }
+      return JSON.stringify({
+        ok: true,
+        candidates_processed: results.length,
+        results,
+        note: "each traced candidate is now a CRM lead; numbers are on the cards and in the CRM. Speak counts and confidence honestly, and say if any result is mock test data.",
+      });
     }
     case "crm_add_lead": {
       const account = String(input.hcad_account ?? "");

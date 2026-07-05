@@ -225,6 +225,10 @@ a.contact-num:hover { text-decoration: underline; }
 .contact-meta { font-size: 11px; color: var(--dim); text-align: right; }
 .contact-row.bad .contact-num { color: rgba(233, 246, 238, 0.35); text-decoration: line-through; font-weight: 500; }
 .contact-row.bad .contact-meta { color: rgba(255, 122, 110, 0.7); }
+/* DNC: visible, legible, locked — struck like bad but amber-flagged. */
+.contact-row.dnc .contact-num { color: rgba(233, 246, 238, 0.45); text-decoration: line-through; font-weight: 500; cursor: not-allowed; }
+.contact-row.dnc .contact-meta { color: rgba(255, 193, 94, 0.85); font-weight: 650; }
+.contact-hours { font-size: 10.5px; color: var(--dim); letter-spacing: 0.04em; margin-top: 2px; }
 .contact-notes { font-size: 12px; color: var(--dim); font-style: italic; }
 
 /* Transcript rail */

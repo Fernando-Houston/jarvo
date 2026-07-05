@@ -531,6 +531,148 @@ export function createRulesBrain(): Brain {
         return;
       }
 
+      // ── Call-outcome logging ("log that call — no answer") — every call
+      // makes the phones data smarter. Number status lives in the CRM. ──
+      if (/\blog\b[^.]*\bcall\b|\bcall log\b|log (it|that|this) as/i.test(userText)) {
+        if (!mem.lastAccount) {
+          say("Which property was the call about? Pull it up first, then log the call.");
+          return;
+        }
+        const outcome = /wrong number|not (him|her|them)\b|wrong person/i.test(userText)
+          ? "wrong_number"
+          : /bad number|disconnect|not in service|dead number|out of service/i.test(userText)
+            ? "bad_number"
+            : /no answer|no-answer|didn'?t (pick|answer)|voice ?mail|left a message/i.test(userText)
+              ? "no_answer"
+              : /talked|spoke|connected|got (a ?hold|through)|reached (him|her|them)/i.test(userText)
+                ? "talked"
+                : null;
+        if (!outcome) {
+          say("Log it as what — no answer, wrong number, or did you talk to them?");
+          return;
+        }
+        const lastDigits = userText.match(/(?:ending|ends)\s*(?:in\s*)?(\d{2,4})/i)?.[1] ?? null;
+        events.onTool("log_call_outcome", "start");
+        let r;
+        try {
+          r = JSON.parse(
+            await executeTool(
+              "log_call_outcome",
+              { hcad_account: mem.lastAccount, outcome, ...(lastDigits ? { phone_last_digits: lastDigits } : {}) },
+              ctx
+            )
+          );
+        } catch {
+          events.onTool("log_call_outcome", "end");
+          say("The CRM didn't take the call log — try again in a moment.");
+          return;
+        }
+        events.onTool("log_call_outcome", "end");
+        if (!r.ok) {
+          say(String(r.reason ?? "Couldn't log that call."));
+          return;
+        }
+        const spokenNum = String(r.number).replace(/\D+/g, "").slice(-4);
+        say(
+          outcome === "wrong_number" || outcome === "bad_number"
+            ? `Logged — the number ending ${spokenNum} is marked bad now, it won't come up to dial again.`
+            : outcome === "talked"
+              ? `Logged as a live conversation on the number ending ${spokenNum}. Say "note:" if you want to dictate what they said.`
+              : `Logged — no answer on the number ending ${spokenNum}.`
+        );
+        return;
+      }
+
+      // ── Skip trace ("trace the owner", "trace the top three") — CRM-first,
+      // provider only when the CRM has nothing, write-back into the lead. ──
+      if (/skip.?trace|\btrace\b/i.test(userText)) {
+        const topN = userText.match(/top\s+(one|two|three|four|five|\d+)/i)?.[1]?.toLowerCase() ?? null;
+        if (topN) {
+          const wordMap: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
+          const parsed = wordMap[topN] ?? parseInt(topN, 10);
+          const count = Number.isFinite(parsed) && parsed > 0 ? parsed : 3;
+          say(`On it — saving and tracing the top ${count}. Give me a moment.`);
+          events.onTool("trace_top_candidates", "start");
+          let t;
+          try {
+            t = JSON.parse(await executeTool("trace_top_candidates", { count }, ctx));
+          } catch {
+            events.onTool("trace_top_candidates", "end");
+            say("The trace run hit a snag — try again in a moment.");
+            return;
+          }
+          events.onTool("trace_top_candidates", "end");
+          if (!t.ok) {
+            say(String(t.reason ?? "No candidates to trace."));
+            return;
+          }
+          let hits = 0;
+          let mock = false;
+          for (const r of t.results as Array<{ address?: string | null; trace?: { phones_found?: number; mock_test_data?: boolean } }>) {
+            if (r.trace?.phones_found) hits++;
+            if (r.trace?.mock_test_data) mock = true;
+          }
+          say(
+            `Done — ${t.candidates_processed} candidate${t.candidates_processed === 1 ? "" : "s"} saved as leads and traced; numbers came back on ${hits} of them.`
+          );
+          if (mock) say("Heads up: that ran on the MOCK trace provider — fabricated test data, not real numbers, until a real provider key is configured.");
+          return;
+        }
+        if (!mem.lastAccount) {
+          say("Ask me about a property first, then say trace it and I'll hunt down the owner's number.");
+          return;
+        }
+        const force = /again|anyway|re-?trace|fresh/i.test(userText);
+        events.onTool("skip_trace", "start");
+        let s;
+        try {
+          s = JSON.parse(await executeTool("skip_trace", { hcad_account: mem.lastAccount, ...(force ? { force: true } : {}) }, ctx));
+        } catch {
+          events.onTool("skip_trace", "end");
+          say("The trace didn't come back — try again in a moment.");
+          return;
+        }
+        events.onTool("skip_trace", "end");
+        if (s.error) {
+          say("I couldn't pin down that parcel to trace.");
+          return;
+        }
+        if (s.needs_lead) {
+          say(`${String(s.address ?? "That one").split(",")[0]} isn't a lead yet — traced numbers live on the lead. Say "save it" first, then trace.`);
+          return;
+        }
+        if (!s.ok) {
+          say(String(s.reason ?? "The trace didn't come back."));
+          return;
+        }
+        if (s.from_crm) {
+          say(
+            `Already have ${s.dialable_numbers_on_file} good number${s.dialable_numbers_on_file === 1 ? "" : "s"} on file — no trace charged, never pay twice. They're on the card. Say "trace it again" if you want a fresh pull anyway.`
+          );
+          return;
+        }
+        if (!s.phones_found && !s.emails_found) {
+          say(`${s.provider} came up empty on this owner — no numbers, no emails. The letter is the play here.`);
+          return;
+        }
+        const conf = s.match_confidence != null ? `, match confidence about ${Math.round(s.match_confidence * 100)} percent` : "";
+        say(
+          `Found ${s.phones_found} number${s.phones_found === 1 ? "" : "s"}${s.emails_found ? ` and ${s.emails_found} email${s.emails_found === 1 ? "" : "s"}` : ""}${conf}.`
+        );
+        if (s.dnc_flagged) {
+          say(`${s.dnc_flagged} of them ${s.dnc_flagged === 1 ? "is" : "are"} on the Do-Not-Call registry — ${s.dnc_flagged === 1 ? "it renders" : "they render"} locked on the card and never get dialed.`);
+        }
+        say(
+          s.written_to_crm
+            ? "They're written into the CRM and on the card now."
+            : `Nothing was written to the CRM — ${String(s.write_note ?? "the write-back didn't run")}.`
+        );
+        if (s.mock_test_data) {
+          say("And straight up: that came from the MOCK provider — fabricated test data, not real contact info, until a real trace provider is configured.");
+        }
+        return;
+      }
+
       // ── Owner contacts ("what's the owner's number?") — from the CRM ──
       if (/owner('s)? (number|phone|contact)|phone number|how do i reach|contact info/i.test(userText)) {
         if (!mem.lastAccount) {
@@ -548,12 +690,12 @@ export function createRulesBrain(): Brain {
         }
         events.onTool("crm_lead_check", "end");
         if (!lc.found) {
-          say("That one isn't a lead yet, so there's no contact record. Save it and the enrichment can go find a number.");
+          say("That one isn't a lead yet, so there's no contact record. Say save it, then say trace it and I'll go find a number.");
           return;
         }
         const c = lc.lead?.contacts;
         if (!c || (!c.primary_phone && !c.good_phones?.length)) {
-          say("It's in the pipeline, but no phone number's been found for the owner yet. The card shows what we do have.");
+          say("It's in the pipeline, but no good number's on file for the owner yet. Say trace it and I'll go hunting.");
           return;
         }
         const speakNum = (n: string) => n.replace(/\D+/g, "").split("").join(" ");

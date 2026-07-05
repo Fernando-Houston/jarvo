@@ -220,9 +220,11 @@ export default function HUD() {
               {visual.contacts.phones.map((p) => {
                 const isPrimary = p.number === visual.contacts!.primaryPhone;
                 const isBad = p.status === "bad";
+                // DNC numbers stay visible but never dialable (TCPA).
+                const noDial = isBad || p.dnc === true;
                 return (
-                  <div key={p.number} className={`contact-row ${isBad ? "bad" : ""}`}>
-                    {isBad ? (
+                  <div key={p.number} className={`contact-row ${isBad ? "bad" : p.dnc ? "dnc" : ""}`}>
+                    {noDial ? (
                       <span className="contact-num">{p.number}</span>
                     ) : (
                       <a className="contact-num" href={`tel:${p.number.replace(/[^\d+]/g, "")}`}>
@@ -232,13 +234,16 @@ export default function HUD() {
                     <span className="contact-meta">
                       {isBad
                         ? `bad${p.badReason ? ` · ${p.badReason.replace(/_/g, " ")}` : ""}`
-                        : [isPrimary ? "primary" : null, p.contactName, p.source]
-                            .filter(Boolean)
-                            .join(" · ") || "on file"}
+                        : p.dnc
+                          ? "DO NOT CALL · DNC registry"
+                          : [isPrimary ? "primary" : null, p.contactName, p.source]
+                              .filter(Boolean)
+                              .join(" · ") || "on file"}
                     </span>
                   </div>
                 );
               })}
+              <div className="contact-hours">Calling hours: 8am–9pm · manual dial only</div>
               {visual.contacts.contactInfo && (
                 <div className="contact-notes">{visual.contacts.contactInfo}</div>
               )}

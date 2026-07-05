@@ -5,11 +5,12 @@
 // (gateway audio chunks, or browser speechSynthesis), and audio-level taps
 // that drive the orb.
 
-import type { ClientMsg, ServerMsg } from "@hvi/shared";
+import type { ClientMsg, ServerMsg, ParcelVisual } from "@hvi/shared";
 import { useHvi } from "./store";
 import { orbBus, setOrbLevel, setOrbMode, setOrbTargets, setOrbLines, setOrbFlood } from "./orbBus";
 import {
   addParcel,
+  addAmbientParcel,
   setComps,
   setGround,
   focusParcelById,
@@ -93,6 +94,7 @@ class VoiceClient {
   start() {
     if (this.ws) return;
     this.connect();
+    this.connectRoom();
     this.levelLoop();
     this.restoreSavedMap();
     void this.loadDigestBanner();
@@ -181,6 +183,68 @@ class VoiceClient {
       if (typeof ev.data === "string") this.handleServerMsg(JSON.parse(ev.data) as ServerMsg);
       else this.handleServerAudio(new Uint8Array(ev.data as ArrayBuffer));
     };
+  }
+
+  // ── The shared war room: teammates' focus parcels join this map live ─────
+  private roomWs: WebSocket | null = null;
+  private roomTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private connectRoom() {
+    const base = process.env.NEXT_PUBLIC_GATEWAY_URL || "ws://localhost:8787";
+    const params = new URLSearchParams();
+    const token = process.env.NEXT_PUBLIC_GATEWAY_TOKEN;
+    if (token) params.set("token", token);
+    let myUser: string | null = null;
+    try {
+      myUser = localStorage.getItem("hvi-user");
+      if (myUser) params.set("u", myUser);
+    } catch {
+      /* anonymous */
+    }
+    const qs = params.toString();
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(`${base.replace(/\/+$/, "")}/room${qs ? `?${qs}` : ""}`);
+    } catch {
+      return; // gateway without a room (old deploy) — solo mode is fine
+    }
+    this.roomWs = ws;
+    ws.onmessage = (ev) => {
+      if (typeof ev.data !== "string") return;
+      try {
+        const e = JSON.parse(ev.data) as {
+          type?: string;
+          user?: string | null;
+          at?: number;
+          visual?: ParcelVisual;
+        };
+        if (e.type !== "team_visual" || e.visual?.kind !== "parcel") return;
+        // Own echoes come back around — this map already has them.
+        if (myUser && e.user === myUser) return;
+        const layout = addAmbientParcel(e.visual);
+        if (!layout) return;
+        this.applyLayout(layout);
+        try {
+          const snapshot = serializeConstellation();
+          if (snapshot) localStorage.setItem(SAVE_KEY, snapshot);
+        } catch {
+          /* storage blocked */
+        }
+        // Toast only for LIVE events; a backlog replay shouldn't strobe.
+        if (e.at && Date.now() - e.at < 15_000) {
+          const s = useHvi.getState();
+          s.setTeamNote(`${e.user ?? "a teammate"} · ${e.visual.address?.split(",")[0] ?? e.visual.hcadAccount}`);
+          setTimeout(() => useHvi.getState().setTeamNote(null), 6000);
+        }
+      } catch {
+        /* malformed frame — ignore */
+      }
+    };
+    ws.onclose = () => {
+      this.roomWs = null;
+      this.roomTimer = setTimeout(() => this.connectRoom(), 4000);
+    };
+    ws.onerror = () => ws.close();
   }
 
   private send(msg: ClientMsg) {

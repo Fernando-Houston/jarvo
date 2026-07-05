@@ -7,6 +7,7 @@ compatibility_flags = ["nodejs_compat"]
 bindings = [
   { name = "SESSION", class_name = "HviSessionDO" },
   { name = "SNAPSHOT", class_name = "HviSnapshotDO" },
+  { name = "ROOM", class_name = "HviRoomDO" },
 ]
 
 [[kv_namespaces]]
@@ -32,3 +33,7 @@ new_sqlite_classes = ["HviSessionDO"]
 [[migrations]]
 tag = "v2"
 new_sqlite_classes = ["HviSnapshotDO"]
+
+[[migrations]]
+tag = "v3"
+new_sqlite_classes = ["HviRoomDO"]

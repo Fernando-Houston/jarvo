@@ -119,6 +119,22 @@ body {
   .boot-logo { animation: none; }
 }
 
+/* Team activity toast — a teammate's parcel just landed on this map. */
+.team-note {
+  position: absolute; top: 64px; right: 24px; z-index: 6;
+  padding: 6px 12px; border-radius: 10px; font-size: 12px;
+  color: rgba(46, 218, 117, 0.9); background: rgba(8, 18, 14, 0.75);
+  border: 1px solid rgba(46, 218, 117, 0.22); backdrop-filter: blur(12px);
+  animation: teamNoteIn 0.25s ease;
+}
+@keyframes teamNoteIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (max-width: 640px) {
+  .team-note { top: auto; bottom: 130px; right: 12px; }
+}
+
 /* Overnight digest banner — one quiet line under the top bar; tap to hear it. */
 .digest-banner {
   position: absolute; top: 64px; left: 50%; transform: translateX(-50%);

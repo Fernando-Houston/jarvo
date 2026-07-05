@@ -8,6 +8,7 @@
 // management and digest reads.
 
 import { Session, type WsLike } from "../../gateway/src/session";
+import type { ParcelVisual } from "@hvi/shared";
 import { runNightlyDigest, getLatestDigest, type DigestStore } from "../../gateway/src/tools/digest";
 import { listLeads, LEAD_STATUSES } from "../../gateway/src/tools/crm";
 import { distillBuyBox, getBuyBox } from "../../gateway/src/brain/buybox";
@@ -24,6 +25,8 @@ import {
 type Env = {
   SESSION: DurableObjectNamespace;
   SNAPSHOT: DurableObjectNamespace;
+  /** The shared war room: one DO for the whole team's live map feed. */
+  ROOM: DurableObjectNamespace;
   HVI_KV: KVNamespace;
   /** R2 home of the Time Machine (KV was the pre-R2 interim). */
   SNAPSHOTS?: R2Bucket;
@@ -149,7 +152,11 @@ export default {
 
     if (req.headers.get("Upgrade")?.toLowerCase() === "websocket") {
       if (!authorized) return new Response("unauthorized", { status: 401 });
-      // Fresh DO per connection = per-session isolation, matching Node's model.
+      // /room = the team's shared map feed (one DO for everyone);
+      // anything else = a private voice session (fresh DO per connection).
+      if (url.pathname === "/room") {
+        return env.ROOM.get(env.ROOM.idFromName("team")).fetch(req);
+      }
       const id = env.SESSION.newUniqueId();
       return env.SESSION.get(id).fetch(req);
     }
@@ -289,6 +296,75 @@ export default {
   },
 };
 
+type TeamEvent = { type: "team_visual"; user: string | null; at: number; visual: ParcelVisual };
+
+/** The shared war room: every teammate's client keeps a socket here; every
+ *  focus parcel any session pulls up is broadcast live and kept in a 24h
+ *  backlog so the morning desk map starts where the evening drive-by ended.
+ *  Hibernation API — the DO sleeps between events, costs nothing idle. */
+export class HviRoomDO {
+  private state: DurableObjectState;
+
+  constructor(state: DurableObjectState, _env: Env) {
+    this.state = state;
+  }
+
+  async fetch(req: Request): Promise<Response> {
+    const url = new URL(req.url);
+    if (req.headers.get("Upgrade")?.toLowerCase() === "websocket") {
+      const pair = new WebSocketPair();
+      const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
+      this.state.acceptWebSocket(server);
+      // Backfill: replay the last day's shared parcels (oldest first) so a
+      // fresh device inherits the team's map before live events arrive.
+      const backlog = ((await this.state.storage.get<TeamEvent[]>("events")) ?? []).filter(
+        (e) => Date.now() - e.at < 24 * 3600_000
+      );
+      for (const e of backlog) {
+        try {
+          server.send(JSON.stringify(e));
+        } catch {
+          /* client vanished mid-backfill */
+        }
+      }
+      return new Response(null, { status: 101, webSocket: client });
+    }
+    if (url.pathname === "/publish" && req.method === "POST") {
+      const body = (await req.json().catch(() => null)) as { user?: string | null; visual?: ParcelVisual } | null;
+      if (!body?.visual?.hcadAccount) return json({ error: "bad publish" }, 400);
+      const event: TeamEvent = {
+        type: "team_visual",
+        user: body.user ?? null,
+        at: Date.now(),
+        visual: body.visual,
+      };
+      const events = ((await this.state.storage.get<TeamEvent[]>("events")) ?? [])
+        .filter((e) => e.visual.hcadAccount !== event.visual.hcadAccount) // newest wins per parcel
+        .slice(-29);
+      events.push(event);
+      await this.state.storage.put("events", events);
+      const frame = JSON.stringify(event);
+      let delivered = 0;
+      for (const ws of this.state.getWebSockets()) {
+        try {
+          ws.send(frame);
+          delivered++;
+        } catch {
+          /* dead socket — hibernation reaps it */
+        }
+      }
+      return json({ ok: true, delivered, backlog: events.length });
+    }
+    return json({ error: "unknown room op" }, 404);
+  }
+
+  webSocketMessage(): void {
+    /* clients only listen; nothing to handle */
+  }
+  webSocketClose(): void {}
+  webSocketError(): void {}
+}
+
 /** The Time Machine's engine room: one global DO whose alarm chain works
  *  through the month's zip queue a subrequest-budget-sized chunk at a time.
  *  State lives in DO storage (strongly consistent); parts land in KV. */
@@ -388,6 +464,10 @@ export class HviSessionDO {
     return new Response(null, { status: 101, webSocket: client });
   }
 
+  /** Focus parcels already fanned out this session — repaints (flood tint,
+   *  verdict chip...) shouldn't re-toast the whole team. */
+  private shared = new Set<string>();
+
   private ensureSession(ws: WebSocket): Session {
     if (!this.session) {
       const wsLike: WsLike = {
@@ -401,7 +481,23 @@ export class HviSessionDO {
           }
         },
       };
-      this.session = new Session(wsLike, { user: this.user });
+      this.session = new Session(wsLike, {
+        user: this.user,
+        onShare: (visual: ParcelVisual) => {
+          if (this.shared.has(visual.hcadAccount)) return;
+          this.shared.add(visual.hcadAccount);
+          this.state.waitUntil(
+            this.env.ROOM.get(this.env.ROOM.idFromName("team"))
+              .fetch("https://room/publish", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ user: this.user, visual }),
+              })
+              .then((r) => r.arrayBuffer())
+              .catch(() => undefined) // the room is best-effort, never the session's problem
+          );
+        },
+      });
     }
     return this.session;
   }

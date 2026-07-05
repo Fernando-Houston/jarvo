@@ -122,6 +122,20 @@ function shortLabel(v: ParcelVisual): string {
   return v.address?.split(",")[0] ?? `HCAD ${v.hcadAccount}`;
 }
 
+/** A teammate's parcel joins the map WITHOUT stealing focus: it lands as a
+ *  memory node at its true bearing. On an empty map it simply becomes the
+ *  focus (nothing to steal). Returns null when there's nothing to change. */
+export function addAmbientParcel(v: ParcelVisual): Layout | null {
+  if (!v?.rings?.length) return null;
+  if (!focus) {
+    focus = v;
+    return layout();
+  }
+  if (focus.hcadAccount === v.hcadAccount) return null; // already center stage
+  memories = [v, ...memories.filter((m) => m.hcadAccount !== v.hcadAccount)].slice(0, MAX_MEMORIES);
+  return layout();
+}
+
 /** Register a newly-discussed parcel and lay out the whole constellation. */
 export function addParcel(v: ParcelVisual): Layout {
   if (focus && focus.hcadAccount !== v.hcadAccount) {

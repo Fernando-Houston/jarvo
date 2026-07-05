@@ -50,8 +50,13 @@ export class Session {
     taxSaleByAccount: new Map(),
   };
 
-  constructor(ws: WsLike, opts: { user?: string | null } = {}) {
+  /** Multiplayer hook: called with each FOCUS parcel visual (not satellite
+   *  pops) so the host can fan it out to the team room. */
+  private onShare: ((v: ParcelVisual) => void) | null = null;
+
+  constructor(ws: WsLike, opts: { user?: string | null; onShare?: (v: ParcelVisual) => void } = {}) {
     this.ws = ws;
+    this.onShare = opts.onShare ?? null;
     if (opts.user) {
       // Named session (?u=fernando): attribution for notes and logs.
       this.memory.user = opts.user.slice(0, 40);
@@ -178,7 +183,13 @@ export class Session {
 
     const parcels = new Map<string, Parcel>();
     const emitVisual = (v: ParcelVisual | CompsVisual | GroundVisual) => {
-      if (!abort.signal.aborted) this.send({ type: "visual", visual: v });
+      if (abort.signal.aborted) return;
+      this.send({ type: "visual", visual: v });
+      // Share only what this session is FOCUSED on — satellite pops (radar,
+      // briefing, portfolios) would flood teammates' small maps.
+      if (v.kind === "parcel" && v.hcadAccount === this.memory.lastAccount) {
+        this.onShare?.(v);
+      }
     };
 
     let spokeAnything = false;

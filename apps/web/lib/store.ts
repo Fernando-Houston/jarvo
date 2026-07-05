@@ -49,6 +49,8 @@ type HviStore = {
   activity: string | null;
   /** Overnight digest headline, shown once per day until dismissed. */
   digest: { headline: string; generatedAt: string } | null;
+  /** Live team activity toast ("fernando · 1218 Yale St"), or null. */
+  teamNote: string | null;
 
   setConnected: (v: boolean) => void;
   setCaps: (c: Capabilities) => void;
@@ -69,6 +71,7 @@ type HviStore = {
   setActivity: (a: string | null) => void;
   setDigest: (d: { headline: string; generatedAt: string } | null) => void;
   dismissDigest: () => void;
+  setTeamNote: (n: string | null) => void;
 };
 
 export const useHvi = create<HviStore>((set) => ({
@@ -89,6 +92,7 @@ export const useHvi = create<HviStore>((set) => ({
   showTranscript: false,
   activity: null,
   digest: null,
+  teamNote: null,
 
   setConnected: (connected) => set({ connected }),
   setCaps: (caps) => set({ caps }),
@@ -119,6 +123,7 @@ export const useHvi = create<HviStore>((set) => ({
   toggleTranscript: () => set((s) => ({ showTranscript: !s.showTranscript })),
   setActivity: (activity) => set({ activity }),
   setDigest: (digest) => set({ digest }),
+  setTeamNote: (teamNote) => set({ teamNote }),
   dismissDigest: () =>
     set((s) => {
       // Remember per digest-generation so it stays gone for the day.

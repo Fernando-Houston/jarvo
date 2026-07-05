@@ -204,6 +204,28 @@ subdomain "houstonlandguy" registered via API). All 8 secrets set via
 the internet: caps + live HCAD answer + 427KB TTS audio. STILL OWED: rotate
 chat-exposed secrets + re-put; phone-verify mobile TTS; HVI_SHARED_SECRET.
 
+**✅ MULTIPLAYER CONSTELLATION v1 (2026-07-04, INTELLIGENCE-ROADMAP §5 #8):**
+The shared war room. `HviRoomDO` (migration v3, hibernation API, one DO =
+the team): clients keep a second WS at `/room` (same token guard); every
+FOCUS parcel any session pulls up is published (SessionDO sniffs via a new
+`Session onShare` hook — fires only when `visual.hcadAccount ===
+memory.lastAccount`, so radar/briefing satellite pops do NOT flood
+teammates' 5-slot maps; deduped per session; best-effort waitUntil fetch)
+→ broadcast live to all room sockets + kept in a 24h/30-event backlog
+(newest-wins per parcel) replayed to fresh connections. Client:
+`addAmbientParcel()` (constellation.ts) adds remote parcels as memory nodes
+WITHOUT stealing focus (empty map: remote becomes focus); own echoes
+filtered by `?u=` name; live events (<15s) show a `.team-note` toast
+("◈ fernando · 1218 Yale St", 6s). VERIFIED: headless two-client E2E
+(scout's lookup hit analyst's room socket <1s with full rings; backlog
+replayed to a late joiner) + real-browser preview (local focus on 209
+Milwaukee UNTOUCHED while three remote parcels joined as satellites at
+true bearings — Yale 2.1mi, Lester 3.8mi, Indigo 10.7mi — threads + chips
+rendered, zero console errors, screenshot). Deployed both sides. NOTE:
+anonymous users (no ?u=) can't filter their own echoes — account-level
+dedup makes it harmless, but names make it clean: one more reason for
+everyone to use jarvo.pages.dev/?u=<name>.
+
 ### P2-7 · Claude brain burn-in (WHEN CREDITS LAND) — first restart gateway, then:
 - Run multi-turn suite: follow-ups ("who owns it" after "what's it worth"),
   constellation comparison ("which of these is the better deal per square foot?"),

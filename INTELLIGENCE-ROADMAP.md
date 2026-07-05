@@ -274,7 +274,7 @@ The shift: individual Q&A → shared institutional memory + division of labor.
 | 5 | ✅ LLC graph + assemblage detector (2026-07-04, see ROADMAP.md) | Deals that don't exist without Jarvo |
 | 6 | ✅ KV cache + latency logs + named users (2026-07-04; Sentry needs a DSN from you) | Team-scale hygiene |
 | 7 | ✅ Buy-box learning + closed-price hooks (2026-07-04; calibration fills as the team dictates closes) | The unreplicatable moat |
-| 8 | Multiplayer constellation | The shared war room |
+| 8 | ✅ Multiplayer constellation v1 (2026-07-04 — room DO, live broadcast + 24h backlog, ambient nodes) | The shared war room |
 | 9 | 🟡 Persona pass ✅ 2026-07-04; flood water render + barge-in open (need eyes/ears to verify) | Polish that sells |
 
 **Standing gates before wide rollout:** rotate chat-exposed secrets, enable

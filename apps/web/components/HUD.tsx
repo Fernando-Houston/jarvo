@@ -17,7 +17,7 @@ function money(n: number | null): string {
 export default function HUD() {
   const {
     connected, caps, orbState, transcript, caption, visual, chips, micArmed, freeCam, error,
-    turns, showTranscript, toggleTranscript, activity, digest, dismissDigest,
+    turns, showTranscript, toggleTranscript, activity, digest, dismissDigest, teamNote,
   } = useHvi();
   const [typed, setTyped] = useState("");
   const railRef = useRef<HTMLElement>(null);
@@ -107,6 +107,9 @@ export default function HUD() {
           </button>
         </div>
       )}
+
+      {/* Live team activity — a teammate's parcel just joined this map */}
+      {teamNote && <div className="team-note">◈ {teamNote}</div>}
 
       {/* Transcript rail — the conversation so far, down the left edge */}
       {showTranscript && turns.length > 0 && (

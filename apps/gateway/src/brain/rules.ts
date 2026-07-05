@@ -171,6 +171,36 @@ export function createRulesBrain(): Brain {
         return;
       }
 
+      // ── Code violations ("has the city been after them?") — 2014–2018 history ──
+      if (/violation|code enforcement|city been (on|after)|cited by the city/i.test(userText)) {
+        if (!mem.lastAccount) {
+          say("Ask me about a property first, then I can pull its code-enforcement history.");
+          return;
+        }
+        events.onTool("code_violations", "start");
+        let v;
+        try {
+          v = JSON.parse(await executeTool("code_violations", { hcad_account: mem.lastAccount }, ctx));
+        } catch {
+          events.onTool("code_violations", "end");
+          say("The city's records didn't answer just now — try again in a moment.");
+          return;
+        }
+        events.onTool("code_violations", "end");
+        if (v.error) {
+          say("The city's records didn't answer just now — try again in a moment.");
+        } else if (!v.violation_count) {
+          say("Clean sheet — no code-enforcement cases on this parcel in the city's published records. Mind that feed only runs 2014 through August 2018, so it's history, not current status.");
+        } else {
+          const cats = (v.categories as string[]).slice(0, 2).join(" and ").toLowerCase();
+          say(
+            `The city had ${v.violation_count} enforcement case${v.violation_count === 1 ? "" : "s"} on this parcel${cats ? ` — mostly ${cats}` : ""}, the latest in ${String(v.newest ?? "").slice(0, 4)}.`
+          );
+          say("That's a chronic-headache signal on the owner, and a gentle talking point. The public feed stops in August 2018 though — treat it as history, not what's on the property today.");
+        }
+        return;
+      }
+
       // ── City overlays ("any restrictions?", "is it historic?") ──
       if (/historic|conservation|restrict|overlay|opportunity zone|preservation/i.test(userText)) {
         if (!mem.lastAccount) {
@@ -670,6 +700,41 @@ export function createRulesBrain(): Brain {
         if (s.mock_test_data) {
           say("And straight up: that came from the MOCK provider — fabricated test data, not real contact info, until a real trace provider is configured.");
         }
+        return;
+      }
+
+      // ── Propensity hot list ("who's most likely to sell around here?") ──
+      if (/hot ?list|hottest (prospect|parcel)|top prospects|most likely to sell|propensity/i.test(userText)) {
+        const zipMatch = userText.match(/\b(77\d{3})\b/)?.[1];
+        if (!zipMatch && !mem.lastAccount) {
+          say("Give me a zip, or pull up a property first, and I'll read you its hot list.");
+          return;
+        }
+        events.onTool("hot_list", "start");
+        let h;
+        try {
+          h = JSON.parse(
+            await executeTool("hot_list", zipMatch ? { zip: zipMatch } : { hcad_account: mem.lastAccount }, ctx)
+          );
+        } catch {
+          events.onTool("hot_list", "end");
+          say("The hot list didn't come back — try again in a moment.");
+          return;
+        }
+        events.onTool("hot_list", "end");
+        if (!h.ok) {
+          say(String(h.reason ?? "No hot list for that area yet."));
+          return;
+        }
+        say(
+          `Zip ${h.zip} has ${h.on_list} scored prospect${h.on_list === 1 ? "" : "s"} above the floor${h.scored_month ? `, ranked from the ${h.scored_month} county archive` : ""} — the top ${h.shown.length} are on your map.`
+        );
+        for (const c of h.shown.slice(0, 2)) {
+          say(
+            `${(c.address ?? "One").split(",")[0]} scores ${c.score}: ${c.why}${c.appraised_value ? `, appraised ${money(c.appraised_value)}` : ""}.`
+          );
+        }
+        say("Scores don't include tax distress — say tax radar to layer that on. Say save it or trace it on any of them and I'll move.");
         return;
       }
 

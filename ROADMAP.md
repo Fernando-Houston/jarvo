@@ -379,9 +379,53 @@ BatchData: `SKIPTRACE_BATCHDATA_API_KEY`; or EnformionGO trial:
 `SKIPTRACE_ENFORMION_AP_NAME` + `SKIPTRACE_ENFORMION_AP_PASSWORD`
 (optional `SKIPTRACE_PROVIDER=batchdata|enformion|mock` to force one).
 Then tell the next session to run one real trace against the test lead's
-owner (max 5 calls) to validate the untested vendor client.** Also still
-owed from §6: propensity engine v1 as a nightly scored hot_list (the
-digest scan is the seed), code-violations connect.
+owner (max 5 calls) to validate the untested vendor client.**
+
+**✅ PROPENSITY ENGINE v1 (2026-07-05, NEXT-HORIZON §6 item 2):** the county
+funnel is live. `tools/propensityScore.ts` — ONE shared transparent
+weighted sum (teardown ratio <15% on ≥3ksf lot +40 · absentee +25 · 15yr+
+hold +15 · probate estate +30 · tax suit +35, floor 40; the digest's
+radius scan now delegates to it). GOTCHA FOUND+FIXED by testing on real
+rows: the naive /\bESTATE\b/ estate signal matched "ACME REAL ESTATE LLC"
+— now /ESTATE OF/ or trailing ESTATE with a REAL-ESTATE negative
+(unit-tested both ways). `apps/worker/src/propensity.ts` + `HviPropensityDO`
+(migration v4): alarm chain over the LATEST R2 Time Machine month — 2
+gzipped county parts per run, rows filtered to pipeline zips, scored raw
+(no HCAD calls at all), top 20 per zip accumulated in DO storage →
+published to KV `propensity:v1:<zip>` + `propensity:meta:v1`. Auto-reruns
+after each monthly snapshot completes; manual POST /propensity/run + GET
+/propensity/status. FIRST COUNTY RUN VERIFIED IN PROD: **1,547,418 rows
+scanned in ~7 min, 0 errors**, rankings published for all 26 pipeline
+zips. `hot_list` tool (+ rules trigger /hot list|most likely to sell/):
+zip from focus parcel or spoken zip, EXCLUDES existing pipeline leads,
+pops top 5 with score+reasons notes, honest note that tax distress isn't
+in county-scale scores (tax_sale_radar layers it). Digest gained a
+pointer bullet when rankings exist. CLOUD E2E: "hot list for 77007" →
+five parcels popped, Claude spoke estates/holds/values with judgment and
+offered next actions. Tax distress at county scale + exemption-drop and
+velocity signals unlock Aug 1 (snapshot #2).
+
+**✅ CODE VIOLATIONS CONNECT (2026-07-05, NEXT-HORIZON §6 item 3 / §3.1):**
+`tools/violations.ts` — City of Houston DON enforcement records via the
+CKAN datastore, **keyed by HCAD account directly** (filters={"HCAD":...}),
+24h KV cache, dedupe of the feed's repeated project rows. HONESTY LINE
+(probed and verified): the city's public feed covers **2014 → August 2018
+and is no longer updated** (portal itself froze ~2023; 311 dataset gone) —
+every result and both brains say "enforcement HISTORY / chronic-owner
+signal, not current status". Tool `code_violations` + rules trigger
+/violation|code enforcement/; card gained an amber "Violations N · <top
+category> · thru <year>" row (ParcelVisual.violations, cached in
+SessionMemory.violationsByAccount, survives re-emits). VERIFIED: local
+(2821 Luell = 3 cases junk-vehicle/nuisance; test lead clean), CLOUD E2E
+(Claude spoke the 2015-16 cases + the window caveat + read absentee off
+the same parcel — and when asked about Luell while Westcott held focus it
+FLAGGED the mismatch instead of answering wrong), REAL BROWSER: card row
+"Violations 3 · junked motor vehicle · thru 2016" rendered, zero console
+errors. NOT fed into the propensity sum (county-scale join impossible on
+a per-account API; also the data's age argues against weighting it) —
+it's a card row, a talking point, and a verdict-era candidate later.
+Parked nearby: permits connect (§3.2), pre-foreclosure (§3.3) — next
+data unlocks after Aug 1 analytics.
 
 ### P2-7 · Claude brain burn-in (WHEN CREDITS LAND) — first restart gateway, then:
 - Run multi-turn suite: follow-ups ("who owns it" after "what's it worth"),

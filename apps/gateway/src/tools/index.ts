@@ -21,7 +21,9 @@ import { floodCheckParcel, type FloodInfo } from "./fema";
 import { chapter42Feasibility, type Ch42Result, type StreetType } from "./chapter42";
 import { cityOverlaysAt } from "./cityOverlays";
 import { groundAround } from "./ground";
-import { getLatestDigest, getTraceCandidates, runNightlyDigest } from "./digest";
+import { digestStore, getLatestDigest, getTraceCandidates, runNightlyDigest } from "./digest";
+import { violationHistory, VIOLATIONS_SOURCE_NOTE } from "./violations";
+import { PROPENSITY_FLOOR } from "./propensityScore";
 import { skipTraceProvider } from "../providers/skiptrace";
 import { composeVerdict } from "./verdict";
 import { taxSaleCheck, taxSaleNear, TAX_SALE_SOURCE_NOTE, type TaxSaleRecord } from "./taxsale";
@@ -70,6 +72,8 @@ export type SessionMemory = {
   pendingDoc: { docType: DocKind; title: string; body: string; hcadAccount: string; address: string | null } | null;
   /** Owner contacts learned from CRM lead checks (drives the card section). */
   contactsByAccount: Map<string, NonNullable<ParcelVisual["contacts"]>>;
+  /** City enforcement history checked this session (drives the card row). */
+  violationsByAccount: Map<string, NonNullable<ParcelVisual["violations"]>>;
 };
 
 export type ToolContext = {
@@ -401,6 +405,18 @@ export const toolSchemas = [
     },
   },
   {
+    name: "code_violations",
+    description:
+      "City of Houston code-enforcement history for a parcel (by 13-digit HCAD account): nuisance, junk-vehicle, dangerous-building and similar Chapter 10 violations with categories and dates. IMPORTANT: the city's public feed covers 2014 through August 2018 only and is no longer updated — this is enforcement HISTORY (a chronic-problem/tired-owner signal and a gentle talking point), never current status; always say that when speaking. Call when the user asks about violations, code enforcement, or whether the city has been after a property.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        hcad_account: { type: "string", description: "13-digit HCAD account number" },
+      },
+      required: ["hcad_account"],
+    },
+  },
+  {
     name: "crm_lead_check",
     description:
       "Check whether a property (by 13-digit HCAD account) is already a lead in the Houston Land Group CRM pipeline: status PLUS the owner's contact enrichment (phone numbers with good/bad flags, who each traces to, contact notes) — the card shows them as tap-to-dial. Call after property_lookup when discussing a specific parcel, and whenever the user asks for the owner's number or contact info. Speak numbers only when asked; NEVER suggest dialing a number marked bad.",
@@ -443,6 +459,19 @@ export const toolSchemas = [
         },
       },
       required: ["hcad_account", "outcome"],
+    },
+  },
+  {
+    name: "hot_list",
+    description:
+      "The propensity hot list: the highest sell-propensity parcels in a zip code, scored monthly from the archived county roll (signals: building value share, absentee mail, hold length, estate-on-title — a transparent weighted sum, never a black box). Defaults to the focus parcel's zip; excludes parcels already in the pipeline; pops the top few onto the map. Call when the user asks for the hot list, hottest prospects, or who's most likely to sell in an area. Speak scores WITH their reasons. Saving or tracing any of them happens ONLY on an explicit follow-up ask.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        hcad_account: { type: "string", description: "13-digit HCAD account whose zip to rank (defaults to the focus parcel)" },
+        zip: { type: "string", description: 'Explicit 5-digit zip, e.g. "77007"' },
+        count: { type: "number", description: "How many to show (default 5, max 10)" },
+      },
     },
   },
   {
@@ -568,6 +597,8 @@ export function emitDecorated(ctx: ToolContext, parcels: Parcel[], note?: string
   if (taxSale) visual.taxSale = taxSale;
   const contacts = ctx.memory.contactsByAccount.get(visual.hcadAccount);
   if (contacts) visual.contacts = contacts;
+  const violations = ctx.memory.violationsByAccount.get(visual.hcadAccount);
+  if (violations) visual.violations = violations;
   const ch42 = ctx.memory.ch42ByAccount.get(visual.hcadAccount);
   if (ch42) {
     visual.ch42 = {
@@ -1366,6 +1397,38 @@ async function executeToolInner(
         ground_features_on_map: g.features.length,
       });
     }
+    case "code_violations": {
+      const account = String(input.hcad_account ?? "");
+      const parcel = await resolveParcel(ctx, account);
+      if (!parcel) return JSON.stringify({ error: `No parcel found for HCAD ${account}` });
+      let history;
+      try {
+        history = await violationHistory(parcel.hcadAccount);
+      } catch (err) {
+        return JSON.stringify({ error: `City records didn't answer: ${err instanceof Error ? err.message : err}` });
+      }
+      // Badge the card with the enforcement history.
+      if (history.count) {
+        ctx.memory.violationsByAccount.set(parcel.hcadAccount, {
+          count: history.count,
+          newest: history.newest,
+          topCategory: history.categories[0] ?? null,
+        });
+      }
+      ctx.memory.lastAccount = parcel.hcadAccount;
+      ctx.memory.lastMatches = 1;
+      emitDecorated(ctx, [parcel]);
+      return JSON.stringify({
+        hcad_account: parcel.hcadAccount,
+        address: parcel.address,
+        violation_count: history.count,
+        categories: history.categories,
+        newest: history.newest,
+        oldest: history.oldest,
+        violations: history.records,
+        note: VIOLATIONS_SOURCE_NOTE,
+      });
+    }
     case "crm_lead_check": {
       const account = String(input.hcad_account ?? "");
       const result = await checkLead(account);
@@ -1533,6 +1596,90 @@ async function executeToolInner(
       }
       await refreshLeadContacts(ctx, account);
       return JSON.stringify({ ok: true, number: res.number, result: res.nowMarked });
+    }
+    case "hot_list": {
+      // Resolve the zip: explicit input, else the focus/named parcel's zip.
+      let zip = typeof input.zip === "string" && /^77\d{3}$/.test(input.zip.trim()) ? input.zip.trim() : null;
+      let subject: Parcel | null = null;
+      if (!zip) {
+        const acct = String(input.hcad_account ?? ctx.memory.lastAccount ?? "");
+        if (acct) subject = await resolveParcel(ctx, acct);
+        zip = subject?.zip ?? null;
+      }
+      if (!zip) {
+        return JSON.stringify({ ok: false, reason: "Need a zip — name one, or pull up a property first." });
+      }
+      const store = digestStore();
+      let meta: { month?: string; generatedAt?: string } | null = null;
+      try {
+        const metaRaw = await store.get("propensity:meta:v1");
+        meta = metaRaw ? JSON.parse(metaRaw) : null;
+      } catch {
+        /* meta is decoration */
+      }
+      let candidates: Array<{ hcadAccount: string; address: string | null; owner: string | null; score: number; reasons: string[]; appraisedValue: number | null; lotSqft: number | null }> = [];
+      try {
+        const raw = await store.get(`propensity:v1:${zip}`);
+        candidates = raw ? JSON.parse(raw) : [];
+      } catch {
+        candidates = [];
+      }
+      if (!candidates.length) {
+        return JSON.stringify({
+          ok: false,
+          zip,
+          reason: meta
+            ? `The propensity engine has no scored parcels for zip ${zip} — it only ranks zips the pipeline touches (scored ${meta.month}).`
+            : "The propensity engine hasn't produced a ranking yet — it scores monthly from the county archive after each snapshot.",
+        });
+      }
+      // The pipeline's own leads never appear on the hunt list.
+      let leadAccounts = new Set<string>();
+      try {
+        const leads = await listLeads([...LEAD_STATUSES], 500);
+        leadAccounts = new Set(leads.map((l) => l.hcadAccount).filter(Boolean) as string[]);
+      } catch {
+        /* unfiltered list is still useful */
+      }
+      const fresh = candidates.filter((c) => !leadAccounts.has(c.hcadAccount));
+      const count = Math.min(Math.max(typeof input.count === "number" ? input.count : 5, 1), 10);
+      const shown = fresh.slice(0, count);
+      let popped = 0;
+      for (const c of shown) {
+        try {
+          const parcel = await resolveParcel(ctx, c.hcadAccount);
+          if (!parcel) continue;
+          ctx.parcels.set(parcel.hcadAccount, parcel);
+          ctx.memory.knownParcels.set(parcel.hcadAccount, parcel);
+          emitDecorated(ctx, [parcel], `propensity ${c.score} · ${c.reasons[0] ?? ""}`);
+          popped++;
+          await new Promise((r) => setTimeout(r, 600));
+        } catch {
+          /* skip unhydratable */
+        }
+      }
+      if (popped && subject) emitDecorated(ctx, [subject]);
+      if (subject) {
+        ctx.memory.lastAccount = subject.hcadAccount;
+        ctx.memory.lastMatches = 1;
+      }
+      return JSON.stringify({
+        ok: true,
+        zip,
+        scored_month: meta?.month ?? null,
+        score_floor: PROPENSITY_FLOOR,
+        on_list: fresh.length,
+        shown: shown.map((c) => ({
+          address: c.address,
+          owner: c.owner,
+          hcad_account: c.hcadAccount,
+          score: c.score,
+          why: c.reasons.join(", "),
+          appraised_value: c.appraisedValue,
+          lot_sqft: c.lotSqft,
+        })),
+        note: "scored monthly from the archived county roll (HCAD lags the courthouse); tax distress is NOT in these scores — tax_sale_radar layers it on; parcels already in the pipeline are excluded; save/trace only on explicit ask",
+      });
     }
     case "trace_top_candidates": {
       const count = Math.min(Math.max(typeof input.count === "number" ? input.count : 3, 1), 5);

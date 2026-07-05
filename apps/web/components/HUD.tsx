@@ -209,6 +209,15 @@ export default function HUD() {
                 </b>
               </div>
             )}
+            {visual.violations && visual.violations.count > 0 && (
+              <div className="row" title="City enforcement history — public feed covers 2014–Aug 2018 only">
+                <span>Violations</span>
+                <b style={{ color: "#ffc15e" }}>
+                  {visual.violations.count} · {(visual.violations.topCategory ?? "code").toLowerCase()}
+                  {visual.violations.newest ? ` · thru ${visual.violations.newest.slice(0, 4)}` : ""}
+                </b>
+              </div>
+            )}
           </div>
           {/* Reach the owner — CRM enrichment; tap a number to dial */}
           {visual.contacts && (visual.contacts.phones.length > 0 || visual.contacts.contactInfo) && (

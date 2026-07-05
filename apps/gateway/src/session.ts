@@ -50,6 +50,7 @@ export class Session {
     taxSaleByAccount: new Map(),
     pendingDoc: null,
     contactsByAccount: new Map(),
+    violationsByAccount: new Map(),
   };
 
   /** Multiplayer hook: called with each FOCUS parcel visual (not satellite

@@ -8,6 +8,7 @@ bindings = [
   { name = "SESSION", class_name = "HviSessionDO" },
   { name = "SNAPSHOT", class_name = "HviSnapshotDO" },
   { name = "ROOM", class_name = "HviRoomDO" },
+  { name = "PROPENSITY", class_name = "HviPropensityDO" },
 ]
 
 [[kv_namespaces]]
@@ -37,3 +38,7 @@ new_sqlite_classes = ["HviSnapshotDO"]
 [[migrations]]
 tag = "v3"
 new_sqlite_classes = ["HviRoomDO"]
+
+[[migrations]]
+tag = "v4"
+new_sqlite_classes = ["HviPropensityDO"]

@@ -11,6 +11,7 @@
 import { listLeads, LEAD_STATUSES } from "./crm";
 import { lookupByAccount, lookupNeighbors, lookupRecentTransfers, type Parcel } from "./hcad";
 import { institutionalOwner } from "./entity";
+import { scorePropensity, PROPENSITY_FLOOR } from "./propensityScore";
 import { taxSaleNear, type TaxSaleRecord } from "./taxsale";
 
 /** Minimal async KV surface — Workers KV in the cloud, in-memory in Node dev. */
@@ -40,7 +41,7 @@ const MAX_AREAS = 6;
 const MAX_TRACE_AREAS = 3;
 const MAX_TRACE_CANDIDATES = 5;
 /** Minimum propensity score to be worth offering a paid trace on. */
-const TRACE_SCORE_FLOOR = 40;
+const TRACE_SCORE_FLOOR = PROPENSITY_FLOOR;
 
 export type Digest = {
   generatedAt: string;
@@ -81,40 +82,18 @@ export async function getTraceCandidates(
   return raw ? (JSON.parse(raw) as { generatedAt: string; candidates: TraceCandidate[] }) : null;
 }
 
-/** Sell-propensity score from the signals already proven in the tool layer
- *  (teardown ratio, absentee, hold length, estate names, tax distress).
- *  Transparent weighted sum — every component speakable, never a black box. */
+/** Sell-propensity score — the shared transparent weighted sum
+ *  (propensityScore.ts), fed from a live Parcel plus the area's tax data. */
 function scoreParcel(p: Parcel, inTaxPipeline: boolean): { score: number; reasons: string[] } {
-  const reasons: string[] = [];
-  let score = 0;
-  const ratio =
-    p.appraisedValue && p.appraisedValue > 30_000 && p.buildingValue != null && p.buildingValue > 0
-      ? p.buildingValue / p.appraisedValue
-      : null;
-  if (ratio != null && ratio < 0.15 && (p.lotSqft ?? 0) >= 3000) {
-    score += 40;
-    reasons.push(`building ${Math.round(ratio * 100)}% of value`);
-  }
-  if (p.absenteeOwner) {
-    score += 25;
-    reasons.push("absentee owner");
-  }
-  const heldYears = p.ownedSince
-    ? Math.floor((Date.now() - new Date(p.ownedSince + "T00:00:00Z").getTime()) / 31557600000)
-    : null;
-  if (heldYears != null && heldYears >= 15) {
-    score += 15;
-    reasons.push(`held ${heldYears} years`);
-  }
-  if (/\bESTATE\b/i.test(p.ownerName ?? "")) {
-    score += 30;
-    reasons.push("estate on title");
-  }
-  if (inTaxPipeline) {
-    score += 35;
-    reasons.push("in the tax-suit pipeline");
-  }
-  return { score, reasons };
+  return scorePropensity({
+    appraisedValue: p.appraisedValue,
+    buildingValue: p.buildingValue,
+    lotSqft: p.lotSqft,
+    absenteeOwner: p.absenteeOwner,
+    ownedSince: p.ownedSince,
+    ownerName: p.ownerName,
+    inTaxPipeline,
+  });
 }
 
 function money(n: number | null): string {
@@ -262,6 +241,23 @@ export async function runNightlyDigest(store: DigestStore = digestStore()): Prom
     }
   } catch {
     /* propensity scan is a bonus — never sinks the digest */
+  }
+
+  // County-scale hot list (monthly engine over the R2 archive): one pointer
+  // line when a ranking exists, so the digest teaches the habit.
+  try {
+    const metaRaw = await store.get("propensity:meta:v1");
+    if (metaRaw) {
+      const meta = JSON.parse(metaRaw) as { month?: string; zipCounts?: Record<string, number> };
+      const total = Object.values(meta.zipCounts ?? {}).reduce((n, c) => n + c, 0);
+      if (total) {
+        bullets.push(
+          `The monthly hot list holds ${total} scored prospects across your zips (${meta.month} county archive) — say "hot list" with a lead on screen to walk the top ones.`
+        );
+      }
+    }
+  } catch {
+    /* pointer line only */
   }
 
   if (addedThisWeek.length) {

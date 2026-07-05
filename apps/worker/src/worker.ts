@@ -21,12 +21,20 @@ import {
   type SnapshotStore,
   type SnapshotState,
 } from "./snapshot";
+import {
+  latestSnapshotMonth,
+  propensityChunk,
+  type PropensityCandidate,
+  type PropensityState,
+} from "./propensity";
 
 type Env = {
   SESSION: DurableObjectNamespace;
   SNAPSHOT: DurableObjectNamespace;
   /** The shared war room: one DO for the whole team's live map feed. */
   ROOM: DurableObjectNamespace;
+  /** Propensity engine: scores the R2 snapshot into per-zip hot lists. */
+  PROPENSITY: DurableObjectNamespace;
   HVI_KV: KVNamespace;
   /** R2 home of the Time Machine (KV was the pre-R2 interim). */
   SNAPSHOTS?: R2Bucket;
@@ -219,6 +227,18 @@ export default {
       } catch (err) {
         return json({ error: err instanceof Error ? err.message : String(err) }, 500);
       }
+    }
+    if (url.pathname === "/propensity/run" && req.method === "POST") {
+      if (!authorized) return json({ error: "unauthorized" }, 401);
+      return env.PROPENSITY.get(env.PROPENSITY.idFromName("global")).fetch(
+        new Request("https://propensity/start", { method: "POST" })
+      );
+    }
+    if (url.pathname === "/propensity/status") {
+      if (!authorized) return json({ error: "unauthorized" }, 401);
+      return env.PROPENSITY.get(env.PROPENSITY.idFromName("global")).fetch(
+        new Request("https://propensity/status")
+      );
     }
     if (url.pathname === "/snapshot/run" && req.method === "POST") {
       if (!authorized) return json({ error: "unauthorized" }, 401);
@@ -435,7 +455,112 @@ export class HviSnapshotDO {
       console.log(
         `[snapshot] ${state.month} complete: ${state.done.length} zips, ${rows} rows, ${state.errors.length} errors`
       );
+      // Fresh archive → fresh scores: kick the propensity engine over the
+      // month that just landed. Best-effort; a manual /propensity/run exists.
+      this.state.waitUntil(
+        this.env.PROPENSITY.get(this.env.PROPENSITY.idFromName("global"))
+          .fetch(new Request("https://propensity/start", { method: "POST" }))
+          .then((r) => r.text())
+          .then((t) => console.log("[propensity] post-snapshot start:", t))
+          .catch((err) => console.error("[propensity] post-snapshot start failed:", err))
+      );
     }
+  }
+}
+
+/** Propensity engine v1: an alarm chain over the latest R2 snapshot month.
+ *  Scores every tracked-zip row with the shared transparent weighted sum
+ *  and publishes the top N per zip to KV for hot_list and the digest. */
+export class HviPropensityDO {
+  private env: Env;
+  private state: DurableObjectState;
+
+  constructor(state: DurableObjectState, env: Env) {
+    this.state = state;
+    this.env = env;
+  }
+
+  async fetch(req: Request): Promise<Response> {
+    applyEnv(this.env);
+    const url = new URL(req.url);
+    if (url.pathname === "/start" && req.method === "POST") {
+      if (!this.env.SNAPSHOTS) return json({ ok: false, reason: "R2 binding missing" }, 503);
+      const existing = await this.state.storage.get<PropensityState>("state");
+      if (existing && !existing.finishedAt) {
+        return json({ ok: false, reason: "already running", state: existing });
+      }
+      let zips: string[];
+      try {
+        zips = await trackedZips();
+      } catch (err) {
+        return json({ ok: false, reason: `CRM zip scan failed: ${err instanceof Error ? err.message : err}` }, 500);
+      }
+      if (!zips.length) return json({ ok: false, reason: "no tracked zips in the pipeline" }, 409);
+      const latest = await latestSnapshotMonth(this.env.SNAPSHOTS);
+      if (!latest) return json({ ok: false, reason: "no snapshot months in R2 yet" }, 409);
+      // Clear the previous run's per-zip tops before rescoring.
+      const old = await this.state.storage.list({ prefix: "top:" });
+      for (const k of old.keys()) await this.state.storage.delete(k);
+      const state: PropensityState = {
+        month: latest.month,
+        queue: latest.keys.sort(),
+        partsTotal: latest.keys.length,
+        zips,
+        rowsScanned: 0,
+        kept: 0,
+        startedAt: new Date().toISOString(),
+        finishedAt: null,
+        errors: [],
+      };
+      await this.state.storage.put("state", state);
+      await this.state.storage.setAlarm(Date.now() + 1000);
+      return json({ ok: true, month: latest.month, parts: latest.keys.length, zips: zips.length });
+    }
+    if (url.pathname === "/status") {
+      const state = await this.state.storage.get<PropensityState>("state");
+      return json(state ?? { neverRun: true });
+    }
+    return json({ error: "unknown propensity op" }, 404);
+  }
+
+  async alarm(): Promise<void> {
+    applyEnv(this.env);
+    let state = await this.state.storage.get<PropensityState>("state");
+    if (!state || state.finishedAt || !this.env.SNAPSHOTS) return;
+    const zipSet = new Set(state.zips);
+    state = await propensityChunk(
+      this.env.SNAPSHOTS,
+      state,
+      zipSet,
+      async (zip) => (await this.state.storage.get<PropensityCandidate[]>(`top:${zip}`)) ?? [],
+      (zip, list) => this.state.storage.put(`top:${zip}`, list)
+    );
+    await this.state.storage.put("state", state);
+    if (!state.finishedAt) {
+      await this.state.storage.setAlarm(Date.now() + 3000);
+      return;
+    }
+    // Publish per-zip tops + a meta record to KV for the voice tools.
+    const counts: Record<string, number> = {};
+    for (const zip of state.zips) {
+      const top = (await this.state.storage.get<PropensityCandidate[]>(`top:${zip}`)) ?? [];
+      counts[zip] = top.length;
+      await this.env.HVI_KV.put(`propensity:v1:${zip}`, JSON.stringify(top));
+    }
+    await this.env.HVI_KV.put(
+      "propensity:meta:v1",
+      JSON.stringify({
+        month: state.month,
+        generatedAt: state.finishedAt,
+        rowsScanned: state.rowsScanned,
+        kept: state.kept,
+        zipCounts: counts,
+        note: "scored from the monthly county archive; tax distress is layered on separately at radius scale",
+      })
+    );
+    console.log(
+      `[propensity] ${state.month} complete: ${state.rowsScanned} rows scanned, ${state.kept} kept across ${state.zips.length} zips, ${state.errors.length} errors`
+    );
   }
 }
 

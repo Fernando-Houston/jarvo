@@ -4,7 +4,7 @@
     {
       "name": "web",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["/private/tmp/claude-504/-Users-fernandox-Desktop-HOUSTON-REAL-ESTATE-AI/1b0b36c0-7a12-4a2c-ab85-bda0bc6d6ab3/scratchpad/proxy-3000.js"],
+      "runtimeArgs": ["/private/tmp/claude-504/-Users-fernandox-Desktop-HOUSTON-REAL-ESTATE-AI/187c0e5c-b947-488a-b8a9-00eb43c323b6/scratchpad/proxy-3000.js"],
       "port": 3000
     }
   ]

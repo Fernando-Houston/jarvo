@@ -53,6 +53,8 @@ const TOOL_LABELS: Record<string, string> = {
   skip_trace: "tracing the owner…",
   log_call_outcome: "logging the call…",
   trace_top_candidates: "saving and tracing candidates…",
+  hot_list: "reading the propensity rankings…",
+  code_violations: "pulling city enforcement history…",
 };
 
 type SpeechRecognitionLike = {

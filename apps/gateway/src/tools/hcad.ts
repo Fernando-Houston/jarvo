@@ -210,8 +210,9 @@ function parseFeature(f: RawFeature): Parcel | null {
 const sqlEscape = (s: string) => s.replace(/'/g, "''");
 
 /** Canonical form for street comparison: uppercase, alphanumeric words,
- *  suffixes collapsed ("STREET" → "ST") so "5330 Indigo Street" == "5330 INDIGO ST". */
-function normalizeStreet(s: string): string {
+ *  suffixes collapsed ("STREET" → "ST") so "5330 Indigo Street" == "5330 INDIGO ST".
+ *  Exported for the propensity engine's absentee check over raw snapshot rows. */
+export function normalizeStreet(s: string): string {
   return s
     .toUpperCase()
     .replace(/[^A-Z0-9 ]+/g, " ")

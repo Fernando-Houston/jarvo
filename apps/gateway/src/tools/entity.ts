@@ -65,7 +65,10 @@ const heldYears = (p: Parcel): number | null =>
 const INSTITUTIONAL =
   /\b(CITY OF|COUNTY|STATE OF|UNITED STATES|USA\b|HOUSTON ISD|SCHOOL|CHURCH|IGLESIA|TEMPLE|MOSQUE|BAPTIST|METHODIST|CATHOLIC|DIOCESE|AUTHORITY|METRO\b|UTILITY|MUD \d|IMPROVEMENT DIST|MANAGEMENT DIST|HOUSING)\b/i;
 
-export const institutionalOwner = (p: Parcel): boolean => INSTITUTIONAL.test(p.ownerName ?? "");
+/** Raw-name form for callers that don't hold a full Parcel (propensity engine). */
+export const institutionalName = (name: string | null): boolean => INSTITUTIONAL.test(name ?? "");
+
+export const institutionalOwner = (p: Parcel): boolean => institutionalName(p.ownerName);
 
 /** "Tired" = the profile that answers the phone: absentee mail, or a hold
  *  old enough that the basis is ancient (or no recorded transfer at all). */

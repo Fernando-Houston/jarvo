@@ -58,6 +58,9 @@ export type ParcelVisual = {
     contactInfo: string | null;
     needsReview: boolean;
   } | null;
+  /** City code-enforcement history (2014–Aug 2018 public window), set after
+   *  code_violations runs — history, not current status. */
+  violations?: { count: number; newest: string | null; topCategory: string | null } | null;
   /** Chapter 42 feasibility, set after chapter42_feasibility runs: the orb
    *  assembles the building rectangles onto the lot. */
   ch42?: {

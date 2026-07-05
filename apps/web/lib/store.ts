@@ -1,7 +1,7 @@
 "use client";
 
 import { create } from "zustand";
-import type { Capabilities, OrbState, ParcelVisual } from "@hvi/shared";
+import type { Capabilities, OrbState, ParcelVisual, DocumentVisual } from "@hvi/shared";
 import type { Chip } from "./constellation";
 
 export type Turn = { user: string; assistant: string };
@@ -51,6 +51,8 @@ type HviStore = {
   digest: { headline: string; generatedAt: string } | null;
   /** Live team activity toast ("fernando · 1218 Yale St"), or null. */
   teamNote: string | null;
+  /** Drafted document awaiting review in the preview panel. */
+  doc: DocumentVisual | null;
 
   setConnected: (v: boolean) => void;
   setCaps: (c: Capabilities) => void;
@@ -72,6 +74,7 @@ type HviStore = {
   setDigest: (d: { headline: string; generatedAt: string } | null) => void;
   dismissDigest: () => void;
   setTeamNote: (n: string | null) => void;
+  setDoc: (d: DocumentVisual | null) => void;
 };
 
 export const useHvi = create<HviStore>((set) => ({
@@ -93,6 +96,7 @@ export const useHvi = create<HviStore>((set) => ({
   activity: null,
   digest: null,
   teamNote: null,
+  doc: null,
 
   setConnected: (connected) => set({ connected }),
   setCaps: (caps) => set({ caps }),
@@ -124,6 +128,7 @@ export const useHvi = create<HviStore>((set) => ({
   setActivity: (activity) => set({ activity }),
   setDigest: (digest) => set({ digest }),
   setTeamNote: (teamNote) => set({ teamNote }),
+  setDoc: (doc) => set({ doc }),
   dismissDigest: () =>
     set((s) => {
       // Remember per digest-generation so it stays gone for the day.

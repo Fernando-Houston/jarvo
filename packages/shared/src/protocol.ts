@@ -85,7 +85,22 @@ export type GroundVisual = {
   }>;
 };
 
-export type Visual = ParcelVisual | CompsVisual | GroundVisual | { kind: "dissolve" };
+/** A drafted document (owner letter, call sheet, offer summary) shown in a
+ *  preview panel. NOTHING is written to the CRM until the user approves —
+ *  by voice ("file it") or the panel's button. */
+export type DocumentVisual = {
+  kind: "document";
+  docType: "letter" | "call_sheet" | "offer_summary";
+  title: string;
+  /** Plain text with newlines; rendered pre-wrap, printable. */
+  body: string;
+  hcadAccount: string;
+  address: string | null;
+  /** True once it has been written to the CRM as a note. */
+  filed: boolean;
+};
+
+export type Visual = ParcelVisual | CompsVisual | GroundVisual | DocumentVisual | { kind: "dissolve" };
 
 // ── Client → Gateway ───────────────────────────────────────────────────────
 export type ClientMsg =
@@ -100,7 +115,15 @@ export type ClientMsg =
   | { type: "audio_start"; sampleRate: number }
   | { type: "audio_stop" }
   /** Barge-in: stop speaking/thinking immediately. */
-  | { type: "interrupt" };
+  | { type: "interrupt" }
+  /** Document panel action: file the pending draft to the CRM, or discard it.
+   *  `doc` carries the draft itself so filing survives gateway restarts and
+   *  Durable Object hibernation (server memory may have been reborn empty). */
+  | {
+      type: "doc_action";
+      action: "file" | "discard";
+      doc?: { docType: "letter" | "call_sheet" | "offer_summary"; title: string; body: string; hcadAccount: string; address: string | null };
+    };
 
 // ── Gateway → Client ───────────────────────────────────────────────────────
 export type ServerMsg =

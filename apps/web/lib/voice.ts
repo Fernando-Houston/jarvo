@@ -44,6 +44,10 @@ const TOOL_LABELS: Record<string, string> = {
   deal_memo: "writing the deal memo…",
   stale_leads: "auditing the pipeline…",
   teardown_radar: "sweeping for teardowns…",
+  draft_letter: "drafting the letter…",
+  call_sheet: "prepping the call sheet…",
+  offer_summary: "writing up the offer…",
+  file_document: "filing to the CRM…",
   city_overlays: "checking city overlays…",
   where_is_this: "reading the ground…",
 };
@@ -325,6 +329,10 @@ class VoiceClient {
             }
           }
         }
+        if (msg.visual.kind === "document") {
+          // Draft (or its filed confirmation) lands in the preview panel.
+          s.setDoc(msg.visual);
+        }
         // "dissolve" (sent on interrupt) intentionally does NOT wipe the
         // constellation — the map you built persists until you clear it.
         break;
@@ -411,6 +419,21 @@ class VoiceClient {
   /** Dismiss the parcel card (map + focus stay). */
   dismissCard() {
     useHvi.getState().setVisual(null);
+  }
+
+  /** Document panel actions: file to the CRM, or discard the draft. The
+   *  draft rides along so filing survives server-side memory loss (DO
+   *  hibernation between drafting and the button press). */
+  docAction(action: "file" | "discard") {
+    const d = useHvi.getState().doc;
+    this.send({
+      type: "doc_action",
+      action,
+      ...(action === "file" && d && !d.filed
+        ? { doc: { docType: d.docType, title: d.title, body: d.body, hcadAccount: d.hcadAccount, address: d.address } }
+        : {}),
+    });
+    if (action === "discard") useHvi.getState().setDoc(null);
   }
 
   async toggleMic() {

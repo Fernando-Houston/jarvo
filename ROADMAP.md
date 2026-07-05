@@ -246,6 +246,32 @@ stale_leads → property_lookup → teardown_radar, spoken with judgment
 its own kind of motivated"). CRM-write discipline held: memo tested ONLY
 against the 505 Westcott test lead.
 
+**✅ VOICE DOCUMENTS + PREVIEW-APPROVE FLOW (2026-07-05):** the papers the
+team actually produces, drafted whole by voice, NEVER written to the CRM
+until approved. `tools/documents.ts`: three Opus templates — `draft_letter`
+(owner outreach; plain-spoken house language, NEVER mentions tax
+distress/surveillance-y facts even when known, absentee acknowledged only
+gently; **swap in Garza's proven letter phrasing when he shares it** —
+prompt lives in SYSTEMS.letter), `call_sheet` (OWNER & HOLD / PROPERTY /
+THE NUMBER / SIGNALS with caller-only sensitivity framing / TALKING POINTS
+/ OBJECTIONS / THE ASK), `offer_summary` (stated terms verbatim, [PRICE
+TBD] if none, mandatory not-a-contract line). Drafts land in
+`SessionMemory.pendingDoc` + a new `DocumentVisual` wire kind → HUD
+`.doc-panel` (File to CRM / Print / Discard / "say file it"); print CSS
+renders the doc alone, black-on-white (browser print = free PDF).
+`file_document` tool (voice) or `doc_action` client msg (button) → CRM
+note, gated on the lead existing. GOTCHA FOUND+FIXED: **DO hibernation
+reborn the Session with pendingDoc=null** between drafting and the button
+press ("No document is waiting") — fixed both ways: doc_action carries the
+draft payload from the client, AND the SessionDO mirrors pendingDoc into
+DO storage (sniffed off document visual frames; seeded into reborn
+Sessions; ensureSession now async). VERIFIED: local (3 doc types on the
+TEST lead; guidance honored — "160k cash, close in 21 days" verbatim;
+file→refuse-refile), headless prod (draft→doc_action→filed=true), and
+REAL BROWSER: call sheet drafted → File clicked → "FILED TO CRM ✓" green,
+zero console errors. Redraft-with-changes = just ask again (new guidance
+overwrites pendingDoc). CRM writes tested ONLY on 505 Westcott.
+
 ### P2-7 · Claude brain burn-in (WHEN CREDITS LAND) — first restart gateway, then:
 - Run multi-turn suite: follow-ups ("who owns it" after "what's it worth"),
   constellation comparison ("which of these is the better deal per square foot?"),

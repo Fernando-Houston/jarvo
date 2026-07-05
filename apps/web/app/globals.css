@@ -119,6 +119,53 @@ body {
   .boot-logo { animation: none; }
 }
 
+/* Document preview panel — drafted by voice, filed only on approval. */
+.doc-panel {
+  position: absolute; top: 70px; left: 50%; transform: translateX(-50%);
+  z-index: 9; width: min(92vw, 560px); max-height: calc(100vh - 220px);
+  display: flex; flex-direction: column;
+  background: rgba(8, 18, 14, 0.92); border: 1px solid rgba(46, 218, 117, 0.3);
+  border-radius: 14px; backdrop-filter: blur(16px);
+  animation: cardIn 0.25s ease;
+}
+.doc-head { display: flex; justify-content: space-between; align-items: flex-start; padding: 14px 16px 8px; }
+.doc-head .card-close { position: static; }
+.doc-title { font-size: 14px; font-weight: 650; color: var(--gold); }
+.doc-state { margin-top: 3px; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; color: #ffd666; }
+.doc-state.filed { color: var(--green); }
+.doc-body {
+  margin: 0; padding: 10px 16px; overflow-y: auto; flex: 1;
+  font-family: inherit; font-size: 13.5px; line-height: 1.55;
+  white-space: pre-wrap; word-break: break-word; color: var(--fg);
+  border-top: 1px solid rgba(46, 218, 117, 0.14);
+}
+.doc-actions {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 10px 16px 14px; border-top: 1px solid rgba(46, 218, 117, 0.14);
+}
+.doc-file {
+  padding: 7px 16px; border-radius: 999px; border: 1px solid rgba(46, 218, 117, 0.6);
+  background: rgba(46, 218, 117, 0.14); color: var(--green);
+  font-size: 12.5px; font-weight: 700; cursor: pointer;
+}
+.doc-file:hover { background: rgba(46, 218, 117, 0.24); }
+.doc-hint { font-size: 11px; color: var(--dim); }
+@media (max-width: 640px) {
+  .doc-panel { top: 58px; max-height: calc(100vh - 240px); }
+}
+/* Print = the document only, black on white. */
+@media print {
+  body * { visibility: hidden; }
+  .doc-panel, .doc-panel * { visibility: visible; }
+  .doc-panel {
+    position: absolute; inset: 0 auto auto 0; transform: none; width: 100%;
+    max-height: none; background: #fff; border: none; backdrop-filter: none;
+  }
+  .doc-title { color: #000; }
+  .doc-body { color: #000; border: none; }
+  .doc-state, .doc-actions, .doc-head .card-close { display: none; }
+}
+
 /* Team activity toast — a teammate's parcel just landed on this map. */
 .team-note {
   position: absolute; top: 64px; right: 24px; z-index: 6;

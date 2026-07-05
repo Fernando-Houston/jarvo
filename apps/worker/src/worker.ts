@@ -460,7 +460,7 @@ export class HviSessionDO {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
     this.state.acceptWebSocket(server);
-    this.ensureSession(server);
+    await this.ensureSession(server);
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -468,7 +468,7 @@ export class HviSessionDO {
    *  verdict chip...) shouldn't re-toast the whole team. */
   private shared = new Set<string>();
 
-  private ensureSession(ws: WebSocket): Session {
+  private async ensureSession(ws: WebSocket): Promise<Session> {
     if (!this.session) {
       const wsLike: WsLike = {
         OPEN: 1,
@@ -479,10 +479,36 @@ export class HviSessionDO {
           } catch {
             /* socket already closed */
           }
+          // Mirror the pending-document state into DO storage so a draft on
+          // the user's screen survives hibernation (the Session object dies;
+          // the storage doesn't). Cheap prefix sniff, JSON only on match.
+          if (typeof data === "string" && data.startsWith('{"type":"visual"')) {
+            try {
+              const msg = JSON.parse(data) as { visual?: { kind?: string; filed?: boolean } };
+              if (msg.visual?.kind === "document") {
+                this.state.waitUntil(
+                  msg.visual.filed
+                    ? this.state.storage.delete("pendingDoc")
+                    : this.state.storage.put("pendingDoc", msg.visual)
+                );
+              }
+            } catch {
+              /* not our frame */
+            }
+          }
         },
       };
+      // A reborn session inherits the draft that was pending when the DO slept.
+      const stored = await this.state.storage.get<{
+        docType: "letter" | "call_sheet" | "offer_summary";
+        title: string;
+        body: string;
+        hcadAccount: string;
+        address: string | null;
+      }>("pendingDoc");
       this.session = new Session(wsLike, {
         user: this.user,
+        pendingDoc: stored ?? undefined,
         onShare: (visual: ParcelVisual) => {
           if (this.shared.has(visual.hcadAccount)) return;
           this.shared.add(visual.hcadAccount);
@@ -502,9 +528,9 @@ export class HviSessionDO {
     return this.session;
   }
 
-  webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
     applyEnv(this.env);
-    const session = this.ensureSession(ws);
+    const session = await this.ensureSession(ws);
     if (typeof message === "string") session.handleText(message);
     else session.handleAudio(new Uint8Array(message));
   }

@@ -24,7 +24,8 @@ import { groundAround } from "./ground";
 import { getLatestDigest, runNightlyDigest } from "./digest";
 import { composeVerdict } from "./verdict";
 import { taxSaleCheck, taxSaleNear, TAX_SALE_SOURCE_NOTE, type TaxSaleRecord } from "./taxsale";
-import type { CompsVisual, GroundVisual } from "@hvi/shared";
+import type { CompsVisual, GroundVisual, DocumentVisual } from "@hvi/shared";
+import { composeDocument, docTitle, type DocKind } from "./documents";
 import {
   checkLead,
   crmAvailable,
@@ -60,13 +61,16 @@ export type SessionMemory = {
   verdictByAccount: Map<string, "GREEN" | "YELLOW" | "RED">;
   /** Tax-sale pipeline state this session (drives the card's distress row). */
   taxSaleByAccount: Map<string, { status: string; saleDate: string | null }>;
+  /** The drafted document awaiting approval — nothing hits the CRM until
+   *  the user files it (voice or panel button). */
+  pendingDoc: { docType: DocKind; title: string; body: string; hcadAccount: string; address: string | null } | null;
 };
 
 export type ToolContext = {
   /** Parcels found during this turn, keyed by HCAD account. */
   parcels: Map<string, Parcel>;
   memory: SessionMemory;
-  emitVisual: (v: ParcelVisual | CompsVisual | GroundVisual) => void;
+  emitVisual: (v: ParcelVisual | CompsVisual | GroundVisual | DocumentVisual) => void;
 };
 
 /** Resolve a parcel from this turn, session history, or live HCAD. */
@@ -176,6 +180,51 @@ export const toolSchemas = [
         },
       },
     },
+  },
+  {
+    name: "draft_letter",
+    description:
+      "Draft an owner-outreach letter for a parcel (by 13-digit HCAD account): plain-spoken, personalized from what this session knows, no hype or pressure, placeholders for name/phone. Opens in a PREVIEW PANEL — it is NOT saved anywhere until the user says 'file it' or taps File. Call when the user asks to draft/write a letter to the owner. Pass their guidance (tone, things to mention) via `guidance`. Afterwards, say the letter is on screen and ask if they want changes — do not read it all aloud.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        hcad_account: { type: "string", description: "13-digit HCAD account of the parcel" },
+        guidance: { type: "string", description: "Optional user guidance: tone, specifics to mention, angle" },
+      },
+      required: ["hcad_account"],
+    },
+  },
+  {
+    name: "call_sheet",
+    description:
+      "Prepare a one-page call sheet before phoning an owner (by 13-digit HCAD account): owner & hold history, the property, the number that matters, signals (with sensitive ones marked caller-only), talking points, likely objections, the ask. Opens in a preview panel; 'file it' saves it to the lead. Call when the user asks to prep for a call or wants a call sheet.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        hcad_account: { type: "string", description: "13-digit HCAD account of the parcel" },
+        guidance: { type: "string", description: "Optional user guidance" },
+      },
+      required: ["hcad_account"],
+    },
+  },
+  {
+    name: "offer_summary",
+    description:
+      "Write an offer summary for a parcel (by 13-digit HCAD account): property, proposed terms, basis context, next steps — explicitly NOT a contract or LOI. Include the price and any terms the user stated via `guidance`. Opens in a preview panel; 'file it' saves it to the lead. Call when the user asks to summarize or write up an offer.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        hcad_account: { type: "string", description: "13-digit HCAD account of the parcel" },
+        guidance: { type: "string", description: "The price and terms as the user stated them, e.g. '315k cash, close in two weeks, seller keeps the shed'" },
+      },
+      required: ["hcad_account"],
+    },
+  },
+  {
+    name: "file_document",
+    description:
+      "File the document currently in the preview panel to the CRM as a note on the parcel's lead. ONLY call when the user explicitly approves ('file it', 'send it to the CRM', 'looks good, save it'). Fails gracefully if the parcel isn't a lead yet.",
+    input_schema: { type: "object" as const, properties: {} },
   },
   {
     name: "deal_memo",
@@ -704,6 +753,74 @@ async function executeToolInner(
           created: l.createdAt?.slice(0, 10) ?? null,
         })),
       });
+    }
+    case "draft_letter":
+    case "call_sheet":
+    case "offer_summary": {
+      const docType: DocKind = name === "draft_letter" ? "letter" : (name as DocKind);
+      const account = String(input.hcad_account ?? "");
+      const parcel = await resolveParcel(ctx, account);
+      if (!parcel) return JSON.stringify({ error: `No parcel found for HCAD ${account}` });
+      let body: string;
+      try {
+        body = await composeDocument(docType, {
+          parcel: compact(parcel),
+          flood: ctx.memory.floodByAccount.get(parcel.hcadAccount)?.label ?? null,
+          ch42Units: ctx.memory.ch42ByAccount.get(parcel.hcadAccount)?.units ?? null,
+          taxSale: ctx.memory.taxSaleByAccount.get(parcel.hcadAccount) ?? null,
+          verdict: ctx.memory.verdictByAccount.get(parcel.hcadAccount) ?? null,
+          compsMedian: ctx.memory.compsMedianByAccount.get(parcel.hcadAccount) ?? null,
+          user: ctx.memory.user,
+          guidance: input.guidance ? String(input.guidance) : null,
+        });
+      } catch (err) {
+        return JSON.stringify({ error: err instanceof Error ? err.message : String(err) });
+      }
+      const title = docTitle(docType, parcel.address);
+      ctx.memory.pendingDoc = { docType, title, body, hcadAccount: parcel.hcadAccount, address: parcel.address };
+      ctx.emitVisual({
+        kind: "document",
+        docType,
+        title,
+        body,
+        hcadAccount: parcel.hcadAccount,
+        address: parcel.address,
+        filed: false,
+      });
+      ctx.memory.lastAccount = parcel.hcadAccount;
+      return JSON.stringify({
+        title,
+        on_screen: true,
+        filed: false,
+        note: "draft is in the preview panel — nothing saved until the user says 'file it' or taps File; they can ask for changes and you redraft with new guidance",
+      });
+    }
+    case "file_document": {
+      const doc = ctx.memory.pendingDoc;
+      if (!doc) return JSON.stringify({ ok: false, reason: "No document is waiting in the preview panel." });
+      const lead = await findLeadByAccount(doc.hcadAccount);
+      if (!lead) {
+        return JSON.stringify({
+          ok: false,
+          reason: `${doc.address?.split(",")[0] ?? "That parcel"} isn't a CRM lead yet — save it as a lead first, then file the document.`,
+        });
+      }
+      try {
+        await addNote(lead.id, `${doc.title.toUpperCase()}\n(drafted by Jarvo${ctx.memory.user ? ` for ${ctx.memory.user}` : ""} · ${new Date().toISOString().slice(0, 10)})\n\n${doc.body}`);
+      } catch (err) {
+        return JSON.stringify({ ok: false, reason: err instanceof Error ? err.message : String(err) });
+      }
+      ctx.emitVisual({
+        kind: "document",
+        docType: doc.docType,
+        title: doc.title,
+        body: doc.body,
+        hcadAccount: doc.hcadAccount,
+        address: doc.address,
+        filed: true,
+      });
+      ctx.memory.pendingDoc = null;
+      return JSON.stringify({ ok: true, filed: doc.title });
     }
     case "deal_memo": {
       const account = String(input.hcad_account ?? "");

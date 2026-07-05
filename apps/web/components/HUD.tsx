@@ -17,7 +17,7 @@ function money(n: number | null): string {
 export default function HUD() {
   const {
     connected, caps, orbState, transcript, caption, visual, chips, micArmed, freeCam, error,
-    turns, showTranscript, toggleTranscript, activity, digest, dismissDigest, teamNote,
+    turns, showTranscript, toggleTranscript, activity, digest, dismissDigest, teamNote, doc,
   } = useHvi();
   const [typed, setTyped] = useState("");
   const railRef = useRef<HTMLElement>(null);
@@ -110,6 +110,40 @@ export default function HUD() {
 
       {/* Live team activity — a teammate's parcel just joined this map */}
       {teamNote && <div className="team-note">◈ {teamNote}</div>}
+
+      {/* Document preview — drafted by voice, filed only on approval */}
+      {doc && (
+        <aside className="doc-panel">
+          <header className="doc-head">
+            <div>
+              <div className="doc-title">{doc.title}</div>
+              <div className={`doc-state ${doc.filed ? "filed" : ""}`}>
+                {doc.filed ? "FILED TO CRM ✓" : "DRAFT — not saved anywhere yet"}
+              </div>
+            </div>
+            <button className="card-close" onClick={() => useHvi.getState().setDoc(null)} title="Close (draft stays pending)">
+              ×
+            </button>
+          </header>
+          <pre className="doc-body">{doc.body}</pre>
+          <footer className="doc-actions">
+            {!doc.filed && (
+              <button className="doc-file" onClick={() => voice.docAction("file")}>
+                File to CRM
+              </button>
+            )}
+            <button className="clear" onClick={() => window.print()}>
+              Print
+            </button>
+            {!doc.filed && (
+              <button className="clear" onClick={() => voice.docAction("discard")}>
+                Discard
+              </button>
+            )}
+            {!doc.filed && <span className="doc-hint">or say “file it” / tell Jarvo what to change</span>}
+          </footer>
+        </aside>
+      )}
 
       {/* Transcript rail — the conversation so far, down the left edge */}
       {showTranscript && turns.length > 0 && (

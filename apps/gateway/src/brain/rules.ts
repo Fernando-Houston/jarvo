@@ -531,6 +531,55 @@ export function createRulesBrain(): Brain {
         return;
       }
 
+      // ── Voice documents: draft to the preview panel, file on approval ──
+      const docDraft = userText.match(/draft|write|prep(are)?/i)
+        ? /letter|write to the owner/i.test(userText)
+          ? "draft_letter"
+          : /call sheet|for the call|before i call/i.test(userText)
+            ? "call_sheet"
+            : /offer (summary|write.?up)|summarize the offer/i.test(userText)
+              ? "offer_summary"
+              : null
+        : /call sheet/i.test(userText)
+          ? "call_sheet"
+          : null;
+      if (docDraft && !/deal memo/i.test(userText)) {
+        if (!mem.lastAccount) {
+          say("Ask me about a property first, then I'll draft it.");
+          return;
+        }
+        events.onTool(docDraft, "start");
+        let d;
+        try {
+          d = JSON.parse(await executeTool(docDraft, { hcad_account: mem.lastAccount, guidance: userText }, ctx));
+        } catch {
+          events.onTool(docDraft, "end");
+          say("The drafting engine hit a snag — try that again in a moment.");
+          return;
+        }
+        events.onTool(docDraft, "end");
+        if (d.error) {
+          say(String(d.error).includes("API key") ? "Drafting needs the full brain, which isn't configured right now." : "The draft didn't come together — try again in a moment.");
+          return;
+        }
+        say(`${d.title} is on your screen. Read it over — say "file it" to save it to the lead, or tell me what to change.`);
+        return;
+      }
+      if (/^(file|send) (it|that|the (letter|sheet|summary|doc(ument)?))\b/i.test(userText.trim())) {
+        events.onTool("file_document", "start");
+        let f;
+        try {
+          f = JSON.parse(await executeTool("file_document", {}, ctx));
+        } catch {
+          events.onTool("file_document", "end");
+          say("Filing hit a snag — try again in a moment.");
+          return;
+        }
+        events.onTool("file_document", "end");
+        say(f.ok ? "Filed — it's on the lead in the CRM." : String(f.reason ?? "Couldn't file it."));
+        return;
+      }
+
       // ── Deal memo ("write me the deal memo") — the considered write-up ──
       if (/deal memo|write (me )?(a |the )?memo|memo (it|this) (up)?/i.test(userText)) {
         if (!mem.lastAccount) {

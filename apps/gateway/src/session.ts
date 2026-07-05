@@ -1,7 +1,7 @@
 // One Session per WebSocket connection: owns the STT stream, the brain,
 // the TTS queue, and the turn lifecycle (listening → thinking → speaking).
 
-import type { Capabilities, ServerMsg, ParcelVisual, CompsVisual, GroundVisual } from "@hvi/shared";
+import type { Capabilities, ServerMsg, ParcelVisual, CompsVisual, GroundVisual, DocumentVisual } from "@hvi/shared";
 
 /** Minimal socket surface Session needs — satisfied by both the `ws`
  *  package (Node gateway) and the Workers server-side WebSocket (via a
@@ -18,7 +18,7 @@ import { createDeepgramSession, deepgramAvailable, type SttSession } from "./pro
 import { createTtsQueue, elevenLabsAvailable } from "./providers/elevenlabs";
 import { crmAvailable } from "./tools/crm";
 import { lookupByAccount, type Parcel } from "./tools/hcad";
-import type { SessionMemory } from "./tools/index";
+import { executeTool, type SessionMemory } from "./tools/index";
 
 export class Session {
   private ws: WsLike;
@@ -48,15 +48,26 @@ export class Session {
     compsMedianByAccount: new Map(),
     verdictByAccount: new Map(),
     taxSaleByAccount: new Map(),
+    pendingDoc: null,
   };
 
   /** Multiplayer hook: called with each FOCUS parcel visual (not satellite
    *  pops) so the host can fan it out to the team room. */
   private onShare: ((v: ParcelVisual) => void) | null = null;
 
-  constructor(ws: WsLike, opts: { user?: string | null; onShare?: (v: ParcelVisual) => void } = {}) {
+  constructor(
+    ws: WsLike,
+    opts: {
+      user?: string | null;
+      onShare?: (v: ParcelVisual) => void;
+      /** Seed for a session reborn after DO hibernation — the draft that was
+       *  on the user's screen when the object went to sleep. */
+      pendingDoc?: SessionMemory["pendingDoc"];
+    } = {}
+  ) {
     this.ws = ws;
     this.onShare = opts.onShare ?? null;
+    if (opts.pendingDoc) this.memory.pendingDoc = opts.pendingDoc;
     if (opts.user) {
       // Named session (?u=fernando): attribution for notes and logs.
       this.memory.user = opts.user.slice(0, 40);
@@ -111,6 +122,40 @@ export class Session {
       case "interrupt":
         this.interrupt();
         break;
+      case "doc_action":
+        if (msg.action === "file" || msg.action === "discard") {
+          void this.handleDocAction(
+            msg.action,
+            (msg as { doc?: SessionMemory["pendingDoc"] }).doc ?? null
+          );
+        }
+        break;
+    }
+  }
+
+  /** Panel-button path for the document preview: file to CRM or discard.
+   *  (The voice path goes through the file_document tool instead.) The
+   *  client sends the draft along, so filing works even when this Session
+   *  was reborn empty (DO hibernation, reconnect). */
+  private async handleDocAction(action: "file" | "discard", doc: SessionMemory["pendingDoc"]) {
+    if (action === "discard") {
+      this.memory.pendingDoc = null;
+      return;
+    }
+    if (!this.memory.pendingDoc && doc?.body && doc.hcadAccount) {
+      this.memory.pendingDoc = doc;
+    }
+    const ctx = {
+      parcels: new Map(),
+      memory: this.memory,
+      emitVisual: (v: ParcelVisual | CompsVisual | GroundVisual | DocumentVisual) =>
+        this.send({ type: "visual", visual: v }),
+    };
+    try {
+      const res = JSON.parse(await executeTool("file_document", {}, ctx)) as { ok: boolean; reason?: string };
+      if (!res.ok && res.reason) this.send({ type: "error", message: res.reason });
+    } catch (err) {
+      this.send({ type: "error", message: err instanceof Error ? err.message : String(err) });
     }
   }
 
@@ -182,7 +227,7 @@ export class Session {
     this.send({ type: "state", state: "thinking" });
 
     const parcels = new Map<string, Parcel>();
-    const emitVisual = (v: ParcelVisual | CompsVisual | GroundVisual) => {
+    const emitVisual = (v: ParcelVisual | CompsVisual | GroundVisual | DocumentVisual) => {
       if (abort.signal.aborted) return;
       this.send({ type: "visual", visual: v });
       // Share only what this session is FOCUSED on — satellite pops (radar,

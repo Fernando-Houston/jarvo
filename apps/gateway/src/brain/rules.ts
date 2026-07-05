@@ -439,6 +439,44 @@ export function createRulesBrain(): Brain {
         return;
       }
 
+      // ── Trace the human behind an LLC ("trace whoever's behind it") ──
+      if (/(trace|reach|find|call).*(principal|behind (the |this |that )?(llc|company|entity|it)|whoever'?s? (really )?behind|operator|actual (owner|person)|real person)/i.test(userText)) {
+        if (!mem.lastAccount) {
+          say("Ask me about a property first, then I'll try to resolve the person behind the company.");
+          return;
+        }
+        events.onTool("trace_entity_principal", "start");
+        let ep;
+        try {
+          ep = JSON.parse(await executeTool("trace_entity_principal", { hcad_account: mem.lastAccount }, ctx));
+        } catch {
+          events.onTool("trace_entity_principal", "end");
+          say("That resolution hit a snag — try again in a moment.");
+          return;
+        }
+        events.onTool("trace_entity_principal", "end");
+        if (!ep.ok) {
+          say(String(ep.reason ?? "Couldn't resolve a person behind that company."));
+          return;
+        }
+        if (ep.from_crm) {
+          say(
+            `Already have ${ep.dialable_numbers_on_file} good number${ep.dialable_numbers_on_file === 1 ? "" : "s"} on this lead${ep.resolved_principal ? ` — traced to ${ep.resolved_principal}` : ""} — no trace charged. They're on the card.`
+          );
+          return;
+        }
+        if (!ep.phones_found && !ep.emails_found) {
+          say(`I found ${ep.resolved_principal} behind that mailbox, but the trace came up empty on them. The letter's the play.`);
+          return;
+        }
+        say(
+          `Behind the company, the mailbox points to ${ep.resolved_principal}${ep.principal_controls_parcels > 1 ? `, who controls ${ep.principal_controls_parcels} parcels from there` : ""}. Traced them: ${ep.phones_found} number${ep.phones_found === 1 ? "" : "s"}${ep.emails_found ? ` and ${ep.emails_found} email${ep.emails_found === 1 ? "" : "s"}` : ""}, on the card now.`
+        );
+        say("Fair warning: that's inferred from a shared mailing address, not confirmed — treat it as a strong lead and check who you've got when they pick up.");
+        if (ep.mock_test_data) say("And that ran on mock test data, not the real provider.");
+        return;
+      }
+
       // ── LLC graph ("who REALLY owns this?") — mailbox beats owner name ──
       if (/really own|actually own|same mailbox|shell (compan|game)|llc game|behind (the|this) llc|true (owner|portfolio)/i.test(userText)) {
         if (!mem.lastAccount) {
@@ -610,38 +648,6 @@ export function createRulesBrain(): Brain {
               ? `Logged as a live conversation on the number ending ${spokenNum}. Say "note:" if you want to dictate what they said.`
               : `Logged — no answer on the number ending ${spokenNum}.`
         );
-        return;
-      }
-
-      // ── Trace the human behind an LLC ("trace whoever's behind it") ──
-      if (/(trace|reach|find|call).*(principal|behind (the |this |that )?(llc|company|entity|it)|whoever'?s? (really )?behind|operator|actual (owner|person)|real person)/i.test(userText)) {
-        if (!mem.lastAccount) {
-          say("Ask me about a property first, then I'll try to resolve the person behind the company.");
-          return;
-        }
-        events.onTool("trace_entity_principal", "start");
-        let ep;
-        try {
-          ep = JSON.parse(await executeTool("trace_entity_principal", { hcad_account: mem.lastAccount }, ctx));
-        } catch {
-          events.onTool("trace_entity_principal", "end");
-          say("That resolution hit a snag — try again in a moment.");
-          return;
-        }
-        events.onTool("trace_entity_principal", "end");
-        if (!ep.ok) {
-          say(String(ep.reason ?? "Couldn't resolve a person behind that company."));
-          return;
-        }
-        if (!ep.phones_found && !ep.emails_found) {
-          say(`I found ${ep.resolved_principal} behind that mailbox, but the trace came up empty on them. The letter's the play.`);
-          return;
-        }
-        say(
-          `Behind the company, the mailbox points to ${ep.resolved_principal}${ep.principal_controls_parcels > 1 ? `, who controls ${ep.principal_controls_parcels} parcels from there` : ""}. Traced them: ${ep.phones_found} number${ep.phones_found === 1 ? "" : "s"}${ep.emails_found ? ` and ${ep.emails_found} email${ep.emails_found === 1 ? "" : "s"}` : ""}, on the card now.`
-        );
-        say("Fair warning: that's inferred from a shared mailing address, not confirmed — treat it as a strong lead and check who you've got when they pick up.");
-        if (ep.mock_test_data) say("And that ran on mock test data, not the real provider.");
         return;
       }
 

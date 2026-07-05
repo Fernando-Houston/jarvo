@@ -1593,6 +1593,22 @@ async function executeToolInner(
       if (!lead) {
         return JSON.stringify({ ok: false, needs_lead: true, address: parcel.address, reason: `${parcel.address?.split(",")[0] ?? "That parcel"} isn't a CRM lead yet — save it first.` });
       }
+      // Never pay twice: if the lead already carries dialable numbers (e.g. a
+      // previous principal trace), hand those back instead of re-tracing.
+      const lcEP = await checkLead(account);
+      if ("found" in lcEP && lcEP.found) {
+        const dialable = (lcEP.lead.contacts?.phones ?? []).filter((p) => p.status !== "bad" && !p.dnc);
+        if (dialable.length) {
+          await refreshLeadContacts(ctx, account);
+          return JSON.stringify({
+            ok: true,
+            from_crm: true,
+            dialable_numbers_on_file: dialable.length,
+            resolved_principal: dialable[0].contactName ?? null,
+            note: "numbers already on file for this lead (likely a previous principal trace) — no trace charged; they're on the card.",
+          });
+        }
+      }
       const mailStreet = parcel.mailingAddress?.split(",")[0] ?? null;
       const mailZip = parcel.mailingAddress?.match(/\b(\d{5})(-\d{4})?\s*$/)?.[1] ?? null;
       if (!mailStreet) {

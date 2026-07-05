@@ -363,7 +363,7 @@ webpush.ts` (VAPID ES256 JWT + RFC 8291 aes128gcm on WebCrypto); routes
 subject in wrangler secrets, public key in [vars]. Voice: `nightly_digest`
 tool (+ rules trigger /digest|overnight|what's new/) reads the stored run or
 sweeps live. Web: `sw.js` + `lib/push.ts` + "alerts" HUD button; PWA
-manifest + orb icon added (iOS push needs home-screen install; real app icon — the Jarvo bull — added 2026-07-04, PNGs at 512/192/180 + apple-touch-icon). Worker now
+manifest + orb icon added (iOS push needs home-screen install; real app icon — the Jarvo bull — added 2026-07-04, PNGs at 512/192/180 + apple-touch-icon; launch splash same day: 9 apple-touch-startup-image sizes (bull on black, sips-generated in public/splash/) + in-app BootSplash overlay (bull + JARVO wordmark, min-show 900ms, fades on connect, 3.5s dead-network timeout, __jarvoBoot debug tap) — lifecycle verified headless (901ms shown/602ms fade/unmount) + visual screenshot; Android splash comes free from the manifest). Worker now
 typechecks (`tsconfig.json` + workers-types were missing). VERIFIED: local
 digest run (4 fresh deeds, 6 areas, dedup on 2nd run) · prod `/digest/run`
 + KV persistence across isolates · WS E2E on the cloud gateway ("what's new

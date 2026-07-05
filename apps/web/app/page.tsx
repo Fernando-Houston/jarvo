@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import dynamic from "next/dynamic";
 import HUD from "@/components/HUD";
 import ConstellationLabels from "@/components/ConstellationLabels";
+import BootSplash from "@/components/BootSplash";
 import { voice } from "@/lib/voice";
 
 const Orb = dynamic(() => import("@/components/Orb"), { ssr: false });
@@ -18,6 +19,7 @@ export default function Home() {
       <Orb />
       <ConstellationLabels />
       <HUD />
+      <BootSplash />
     </main>
   );
 }

@@ -91,6 +91,34 @@ body {
   font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
   color: #ffa366; background: rgba(255, 163, 102, 0.1);
 }
+/* Boot splash — bull + wordmark over black, fades into the orb. */
+.boot-splash {
+  position: fixed; inset: 0; z-index: 50;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; background: #000;
+  opacity: 1; transition: opacity 0.6s ease;
+}
+.boot-fade { opacity: 0; pointer-events: none; }
+.boot-logo {
+  width: 112px; height: 112px; border-radius: 24px;
+  animation: bootBreathe 2.2s ease-in-out infinite;
+}
+.boot-word {
+  font-size: 22px; font-weight: 700; letter-spacing: 0.42em; margin-left: 0.42em;
+  color: rgba(233, 246, 238, 0.95);
+}
+.boot-sub {
+  font-size: 11px; letter-spacing: 0.24em; margin-left: 0.24em;
+  color: rgba(233, 246, 238, 0.45); text-transform: uppercase;
+}
+@keyframes bootBreathe {
+  0%, 100% { filter: drop-shadow(0 0 12px rgba(46, 218, 117, 0.18)); transform: scale(1); }
+  50% { filter: drop-shadow(0 0 26px rgba(46, 218, 117, 0.4)); transform: scale(1.025); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .boot-logo { animation: none; }
+}
+
 /* Overnight digest banner — one quiet line under the top bar; tap to hear it. */
 .digest-banner {
   position: absolute; top: 64px; left: 50%; transform: translateX(-50%);

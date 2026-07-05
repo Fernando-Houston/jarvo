@@ -164,9 +164,17 @@ function parseContacts(d: Record<string, unknown>): LeadContacts | null {
       p.status === "bad" ? 3 : p.dnc ? 2 : p.number === primary ? 0 : 1;
     return rank(a) - rank(b);
   });
+  // The team's preferred/primary column wins — unless that number has since
+  // gone bad or landed on the DNC list, in which case the primary falls back
+  // to the best still-dialable number (compliance: never promote a no-dial).
+  const primaryEntry = primary ? phones.find((p) => p.number === primary) : undefined;
+  const primaryDialable = primaryEntry ? primaryEntry.status !== "bad" && !primaryEntry.dnc : Boolean(primary);
   return {
     phones,
-    primaryPhone: primary ?? phones.find((p) => p.status !== "bad" && !p.dnc)?.number ?? null,
+    primaryPhone:
+      (primaryDialable ? primary : null) ??
+      phones.find((p) => p.status !== "bad" && !p.dnc)?.number ??
+      null,
     contactInfo,
     source: (d.contact_source as string) ?? null,
     matchConfidence: typeof d.contact_match_confidence === "number" ? d.contact_match_confidence : null,

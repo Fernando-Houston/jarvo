@@ -39,6 +39,14 @@
 
 **Reach the owner**
 - Pull up any lead and the card shows **REACH THE OWNER**: tap a number to dial, bad numbers shown struck-through so nobody redials a wrong number. Ask "what's the owner's number?" and Jarvo reads out the primary.
+- "**Trace it**" / "skip trace the owner" — hunts down phone numbers + emails and files them on the lead. Checks the CRM first so we never pay for a number we already have; "trace it **again**" forces a fresh pull. (Until a real trace provider is connected it runs on clearly-labeled mock test data.)
+- After a call: "**Log that call — no answer**" / "**wrong number**" / "**talked to them**" — updates the number on the lead so every call makes the data smarter. Wrong numbers never come up to dial again.
+- Numbers on the **Do-Not-Call registry** show locked with "DO NOT CALL" — on the card and as DO-NOT-DIAL lines on call sheets. Calls are manual dial only, 8am–9pm. No texting, ever (TCPA).
+
+**Hunt (who to chase next)**
+- "**Hot list** for 77007" / "who's **most likely to sell** around here?" — the top-scored prospects in a zip, ranked monthly from the county archive (teardown-grade buildings, absentee, long holds, estates). Every score comes with its reasons.
+- The overnight digest may offer "**trace the top 3?**" — nothing is saved or traced until you say yes.
+- "Any **code violations**?" — the city's enforcement history on a parcel (chronic-headache signal; the public feed stops at Aug 2018, so it's history, not current status).
 
 **Pipeline (the CRM, by voice)**
 - "Good morning" / "briefing" — your hot + new leads pop onto the map
@@ -67,6 +75,7 @@ Gateway base: `https://hvi-gateway.houstonlandguy.workers.dev`
 | `POST /digest/run` | run the digest now (+ push) |
 | `GET /buybox` · `POST /buybox/run` | read / re-distill the buy-box |
 | `GET /snapshot/status` · `POST /snapshot/run` | Time Machine status / manual sweep (`?scope=zips` narrows) |
+| `GET /propensity/status` · `POST /propensity/run` | propensity engine status / rescore from the latest archive (auto-runs after each monthly snapshot) |
 | `wss://…workers.dev` · `wss://…workers.dev/room` | the voice session · the team map feed |
 
 > These are open until `HVI_SHARED_SECRET` is set; after that they take `?token=`.

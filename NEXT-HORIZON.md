@@ -264,13 +264,19 @@ gets USED daily, and daily use is what feeds layers 2–4.
 
 ## 6. Suggested next-session build order
 
-1. **Skip-trace tool + provider abstraction + CRM write-back + DNC flags**
-   (§1.2A, §1.5) — pick provider, wire `skip_trace`, card/call-sheet DNC
-   rendering, call-outcome voice logging. The single highest-leverage build.
-2. **Propensity engine v1** (§2) — nightly scoring from the R2 snapshot,
-   `hot_list` tool, digest integration, estate-name quick win.
-3. **Code violations + permits connects** (§3.1–2) — free data, feeds #2.
-4. **Digest health canaries + failure alerts** (§4 ops).
+1. ✅ **Skip-trace tool + provider abstraction + CRM write-back + DNC flags**
+   (§1.2A, §1.5) — SHIPPED 2026-07-05 (see ROADMAP "CONTACT ENGINE v1").
+   Runs on the MOCK provider until a real key lands (USER ACTION in ROADMAP).
+2. ✅ **Propensity engine v1** (§2) — SHIPPED 2026-07-05 (ROADMAP
+   "PROPENSITY ENGINE v1"): scores the R2 county archive (1.55M rows, ~7
+   min, 0 errors) into per-zip KV rankings; `hot_list` tool; digest offer;
+   estate-name signal live. Monthly rescore auto-runs after each snapshot.
+3. ✅ **Code violations connect** (§3.1) — SHIPPED 2026-07-05 (ROADMAP "CODE
+   VIOLATIONS CONNECT"). Caveat discovered: the city's public feed FROZE at
+   Aug 2018 — it's enforcement history, spoken as such. Permits (§3.2) still
+   open — probe whether Houston Permitting publishes anything fresher before
+   building.
+4. **Digest health canaries + failure alerts** (§4 ops). ← START HERE
 5. **August 1**: exemption-drop + value-velocity analytics the day snapshot
    #2 lands (the Time Machine's first payoff).
 6. Then: history-across-hibernation, task handoff, Garza infra when the

@@ -1598,8 +1598,9 @@ async function executeToolInner(
       return JSON.stringify({ ok: true, number: res.number, result: res.nowMarked });
     }
     case "hot_list": {
-      // Resolve the zip: explicit input, else the focus/named parcel's zip.
-      let zip = typeof input.zip === "string" && /^77\d{3}$/.test(input.zip.trim()) ? input.zip.trim() : null;
+      // Resolve the zip: explicit input (string or number), else the focus/named parcel's zip.
+      const zipRaw = input.zip != null ? String(input.zip).trim() : "";
+      let zip = /^77\d{3}$/.test(zipRaw) ? zipRaw : null;
       let subject: Parcel | null = null;
       if (!zip) {
         const acct = String(input.hcad_account ?? ctx.memory.lastAccount ?? "");
@@ -1642,7 +1643,8 @@ async function executeToolInner(
         /* unfiltered list is still useful */
       }
       const fresh = candidates.filter((c) => !leadAccounts.has(c.hcadAccount));
-      const count = Math.min(Math.max(typeof input.count === "number" ? input.count : 5, 1), 10);
+      const countIn = Number(input.count);
+      const count = Math.min(Math.max(Number.isFinite(countIn) && countIn > 0 ? countIn : 5, 1), 10);
       const shown = fresh.slice(0, count);
       let popped = 0;
       for (const c of shown) {
@@ -1682,7 +1684,8 @@ async function executeToolInner(
       });
     }
     case "trace_top_candidates": {
-      const count = Math.min(Math.max(typeof input.count === "number" ? input.count : 3, 1), 5);
+      const countIn = Number(input.count);
+      const count = Math.min(Math.max(Number.isFinite(countIn) && countIn > 0 ? countIn : 3, 1), 5);
       let stored;
       try {
         stored = await getTraceCandidates();

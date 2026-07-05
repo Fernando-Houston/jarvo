@@ -164,11 +164,13 @@ function parseContacts(d: Record<string, unknown>): LeadContacts | null {
       p.status === "bad" ? 3 : p.dnc ? 2 : p.number === primary ? 0 : 1;
     return rank(a) - rank(b);
   });
-  // The team's preferred/primary column wins — unless that number has since
-  // gone bad or landed on the DNC list, in which case the primary falls back
-  // to the best still-dialable number (compliance: never promote a no-dial).
+  // The team's preferred/primary column wins ONLY when that number is an
+  // actual entry on file AND still dialable. A stale preferred_phone (one no
+  // longer present in the phones array, or since gone bad/DNC) must never be
+  // promoted to tap-to-dial — fall back to the best dialable entry instead.
+  // (Compliance: never surface a number we haven't vetted or that's no-dial.)
   const primaryEntry = primary ? phones.find((p) => p.number === primary) : undefined;
-  const primaryDialable = primaryEntry ? primaryEntry.status !== "bad" && !primaryEntry.dnc : Boolean(primary);
+  const primaryDialable = Boolean(primaryEntry) && primaryEntry!.status !== "bad" && !primaryEntry!.dnc;
   return {
     phones,
     primaryPhone:
@@ -419,17 +421,28 @@ type PhoneRow = Record<string, unknown> & { number?: string };
 async function readPhonesRow(
   db: SupabaseClient,
   leadId: string
-): Promise<{ phones: PhoneRow[]; contactInfo: string | null }> {
+): Promise<{ phones: PhoneRow[]; contactInfo: string | null; preferred: string | null }> {
   const { data, error } = await db
     .from("leads")
-    .select("phones,contact_info")
+    .select("phones,contact_info,preferred_phone,primary_phone")
     .eq("id", leadId)
     .single();
   if (error) throw new Error(`CRM phones read failed: ${error.message}`);
   return {
     phones: Array.isArray(data.phones) ? (data.phones as PhoneRow[]) : [],
     contactInfo: (data.contact_info as string | null) ?? null,
+    preferred: (data.preferred_phone ?? data.primary_phone) as string | null,
   };
+}
+
+/** The number the card presents as primary: the preferred column when it's a
+ *  present, dialable entry, else the first dialable entry — kept in lockstep
+ *  with parseContacts so "log that call" targets the number the user saw. */
+function primaryDialableNumber(phones: PhoneRow[], preferred: string | null): PhoneRow | undefined {
+  const dialable = (p: PhoneRow) => p.status !== "bad" && p.dnc !== true;
+  const pref = preferred ? phones.find((p) => p.number === preferred) : undefined;
+  if (pref && dialable(pref)) return pref;
+  return phones.find(dialable) ?? phones[0];
 }
 
 /** Merge a skip-trace result into the lead: new numbers append to the phones
@@ -499,17 +512,30 @@ export async function logCallOutcome(
 ): Promise<{ ok: true; number: string; nowMarked: string } | { ok: false; reason: string }> {
   const db = await getClient();
   if (!db) return { ok: false, reason: "CRM not connected" };
-  const { phones } = await readPhonesRow(db, leadId);
+  const { phones, preferred } = await readPhonesRow(db, leadId);
   if (!phones.length) return { ok: false, reason: "no phone numbers on file for this lead" };
-  // Which number? Explicit digits win (suffix match); otherwise the first
-  // number still worth dialing; otherwise the first, so the log lands somewhere.
+  // Which number? Explicit spoken digits win. Otherwise default to the SAME
+  // primary the card presented, so the log lands on the number the user
+  // actually dialed — not just whatever sits first in storage order.
   let entry: PhoneRow | undefined;
   if (matchDigits) {
-    entry = phones.find((p) => digitsOf(String(p.number ?? "")).endsWith(matchDigits));
-    if (!entry) return { ok: false, reason: `no number ending in ${matchDigits} on file` };
+    const matches = phones.filter((p) => digitsOf(String(p.number ?? "")).endsWith(matchDigits));
+    if (!matches.length) return { ok: false, reason: `no number ending in ${matchDigits} on file` };
+    // Ambiguous suffix (short spoken tail matching two lines) → don't guess
+    // for a destructive outcome; ask for more digits. Non-destructive logs
+    // fall to the primary among the matches.
+    if (matches.length > 1) {
+      if (outcome === "wrong_number" || outcome === "bad_number") {
+        return { ok: false, reason: `more than one number ends in ${matchDigits} — say a few more digits so I mark the right one bad` };
+      }
+      entry = primaryDialableNumber(matches, preferred) ?? matches[0];
+    } else {
+      entry = matches[0];
+    }
   } else {
-    entry = phones.find((p) => p.status !== "bad" && p.dnc !== true) ?? phones[0];
+    entry = primaryDialableNumber(phones, preferred);
   }
+  if (!entry) return { ok: false, reason: "couldn't pick a number to log against" };
   const now = new Date().toISOString();
   entry.last_outcome = outcome;
   entry.last_outcome_at = now;

@@ -82,15 +82,19 @@ function splitOwnerName(owner: string): { first: string | null; last: string; en
   if (isEntityName(owner)) {
     return { first: null, last: cleaned, entity: true };
   }
-  // HCAD joins co-owners with "&" ("VANALLAN PATRICIA& ; CURTIS …") — cut at
-  // the first "&" (trace the primary owner) and strip any char that isn't part
-  // of a name, so stray "&"/punctuation never reaches the provider (it 400s).
-  const clean = (s: string) => s.replace(/[^A-Za-z' -]/g, " ").replace(/\s+/g, " ").trim();
-  const primary = clean(cleaned.split("&")[0]);
+  // HCAD joins co-owners with "&" ("VANALLAN PATRICIA& ; CURTIS …"). Strip
+  // only real punctuation/digits — PRESERVE unicode letters + accents, so
+  // "NGUYEN ĐỨC" / "MÜLLER HANS" keep their names instead of collapsing to a
+  // single letter (the ASCII-only strip mangled exactly the immigrant-heavy
+  // neighborhoods this serves). \p{L} letters, \p{M} combining marks.
+  const clean = (s: string) => s.replace(/[^\p{L}\p{M}' -]/gu, " ").replace(/\s+/g, " ").trim();
+  // Take the first co-owner segment that actually yields a name (guards the
+  // "& SMITH JOHN" case where the primary slot is blank before the "&").
+  const primary = cleaned.split("&").map(clean).find(Boolean) ?? clean(cleaned);
   const parts = primary.split(" ").filter(Boolean);
   // HCAD style is LAST FIRST [MIDDLE]
   if (parts.length >= 2) return { first: parts[1], last: parts[0], entity: false };
-  return { first: null, last: primary || cleaned, entity: false };
+  return { first: null, last: primary || clean(cleaned) || cleaned, entity: false };
 }
 
 /** Parse an HCAD mailing string into clean parts for the provider payload.
@@ -104,16 +108,28 @@ function splitAddress(addr: string | null): { street: string; city: string; stat
   if (!addr) return null;
   const segs = addr.split(",").map((s) => s.trim()).filter(Boolean);
   if (!segs.length) return null;
-  // Last segment is the "ST ZIP[-####]" tail — read state and zip from THERE,
-  // never from the whole string (a street number like "11635 …" is 5 digits
-  // too and would otherwise be mistaken for the zip).
   const last = segs[segs.length - 1];
-  const state = last.match(/\b([A-Z]{2})\b/)?.[1] ?? "TX";
+  // State + zip come from the tail. Anchor the state to the 2-letter token
+  // sitting right before the 5-digit zip ("TX 77007") so a stray directional
+  // or "PO"/"BOX" token can't be mistaken for the state; both default safely.
   const zip = last.match(/\b(\d{5})(?:-\d{0,4})?\b/)?.[1] ?? "";
-  // City is the segment before the state/zip tail (when there is one).
-  const city = segs.length >= 3 ? segs[segs.length - 2] : segs.length === 2 ? segs[0] : "HOUSTON";
-  // Street is everything before the city (rejoined), or the first segment.
-  const street = segs.length >= 3 ? segs.slice(0, segs.length - 2).join(", ") : segs[0];
+  const state = last.match(/\b([A-Z]{2})\s+\d{5}\b/)?.[1] ?? "TX";
+  let city: string;
+  let street: string;
+  if (segs.length >= 3) {
+    // "STREET…, CITY, ST ZIP" — the common HCAD shape.
+    city = segs[segs.length - 2];
+    street = segs.slice(0, segs.length - 2).join(", ");
+  } else if (segs.length === 2) {
+    // "STREET, CITY ST ZIP" (no comma before the city) — strip the state+zip
+    // tail off the last segment to recover the city; don't reuse the street.
+    city = last.replace(/\b[A-Z]{2}\s+\d{5}(?:-\d{0,4})?\s*$/, "").replace(/\s+/g, " ").trim() || "HOUSTON";
+    street = segs[0];
+  } else {
+    // Single segment (bare street or "PO BOX …") — no reliable city/state.
+    city = "HOUSTON";
+    street = segs[0];
+  }
   return { street, city, state, zip };
 }
 

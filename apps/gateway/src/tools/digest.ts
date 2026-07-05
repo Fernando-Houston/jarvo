@@ -290,10 +290,21 @@ export async function runNightlyDigest(store: DigestStore = digestStore()): Prom
   if (lgbsDown) canaries.push("The county tax-sale listings were unreachable this sweep — no distress could be checked tonight.");
   if (hcadFlaky) canaries.push(`HCAD was flaky tonight — ${health.hcadFail} of ${health.hcadTry} area lookups failed, so some new deeds may be missing.`);
   if (lgbsFlaky) canaries.push(`The tax-sale listings were flaky tonight — ${health.lgbsFail} of ${health.lgbsTry} checks failed.`);
-  if (!crmOk) canaries.push("The CRM wasn't reachable during this sweep — pipeline items may be missing.");
+  if (!crmOk) {
+    // CRM down cascades: no leads → nothing to sweep → HCAD/LGBS never even
+    // tried, so this isn't "quiet", it's blind. Say so plainly.
+    canaries.push(
+      health.hcadTry === 0
+        ? "The CRM was unreachable — I couldn't read the pipeline, so nothing could be swept tonight. This is blind, not quiet."
+        : "The CRM wasn't reachable during this sweep — pipeline items may be missing."
+    );
+  }
   // Canaries lead the brief when present.
   if (canaries.length) bullets.unshift(...canaries);
-  const allSourcesBlind = hcadDown && (lgbsDown || health.lgbsTry === 0) && !crmOk;
+  // "Blind" = every source we depend on was unusable: the CRM failed (so we
+  // never swept), or HCAD was down with no working distress fallback.
+  const allSourcesBlind =
+    (!crmOk && health.hcadTry === 0) || (hcadDown && (lgbsDown || health.lgbsTry === 0) && !crmOk);
   if (!bullets.length) {
     bullets.push("Quiet night — no new recordings, no new tax distress around your tracked leads, no pipeline changes.");
   }

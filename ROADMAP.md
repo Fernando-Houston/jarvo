@@ -3,7 +3,9 @@
 > **Purpose of this file:** everything a fresh Claude Code session needs to continue
 > building HVI without re-discovering context. Read this top to bottom, then start
 > at the first unchecked item in [The Backlog](#the-backlog-prioritized).
-> Companion docs: `README.md` (run instructions), `../VISION.md`, `../PROJECT-BRIEF.md`.
+> Companion docs: `README.md` (run instructions), `../VISION.md`, `../PROJECT-BRIEF.md`,
+> `INTELLIGENCE-ROADMAP.md` (strategy), `NEXT-HORIZON.md` (contact engine at county
+> scale + full gap audit — START THE NEXT BUILD SESSION THERE), `TEAM-GUIDE.md`.
 > Last updated: 2026-07-03.
 
 ---

@@ -1,36 +1,53 @@
-# HVI — Cloudflare launch runbook
+# HVI — Deploy runbook
 
-Status 2026-07-04: web app is DEPLOY-READY (static export builds clean,
-mobile-optimized). The GATEWAY is not yet in the cloud — deploying the web
-app alone gives a dead orb. Ship order below.
+**Status 2026-07-05: fully live in the cloud.** Gateway on Cloudflare Workers
+(`wss://hvi-gateway.houstonlandguy.workers.dev`), web on Cloudflare Pages
+(jarvo.pages.dev). Both deploy from this repo. See CLAUDE.md for architecture.
 
-## 0. BEFORE anything public — rotate every secret
-All values in `.env` passed through chat sessions. Rotate at the provider,
-update `.env`, restart gateway:
-- Anthropic API key · Deepgram key · ElevenLabs key
-- `HVI_CRM_PASSWORD` (Land Lead Hub service user)
-- Cloudflare API token
-Then set a fresh `HVI_SHARED_SECRET` (gateway auth) — e.g. `openssl rand -hex 24`.
+## Deploy the gateway (Workers + Durable Objects)
+```bash
+cd apps/gateway && pnpm exec tsc --noEmit    # typecheck first
+cd ../worker
+CLOUDFLARE_API_TOKEN=<from .env> CLOUDFLARE_ACCOUNT_ID=<from .env> pnpm exec wrangler deploy
+```
+⚠️ Propagation takes 1–2 min AND live Durable Objects keep old code — test on a
+FRESH WebSocket connection after a short wait, not an existing session.
 
-## 1. Gateway → Cloudflare Workers + Durable Objects (the remaining port)
-Port `apps/gateway` per ROADMAP P1-6: one DO per session, `ws` →
-`WebSocketPair`, secrets via `wrangler secret put`. Until this lands, team
-testing works TODAY over LAN/tailscale: run `pnpm dev` on this machine and
-point phones at `http://<this-mac>:3000` (gateway URL via env below).
-
-## 2. Web → Cloudflare Pages
+## Deploy the web app (Pages, static export)
 ```bash
 cd apps/web
-NEXT_PUBLIC_GATEWAY_URL=wss://<gateway-host> \
-NEXT_PUBLIC_GATEWAY_TOKEN=<HVI_SHARED_SECRET> \
-pnpm exec next build            # static export → out/
-pnpm dlx wrangler pages deploy out --project-name hvi
+NEXT_PUBLIC_GATEWAY_URL=wss://hvi-gateway.houstonlandguy.workers.dev pnpm exec next build
+CLOUDFLARE_API_TOKEN=<from .env> CLOUDFLARE_ACCOUNT_ID=<from .env> \
+  pnpm dlx wrangler pages deploy out --project-name jarvo --commit-dirty=true
 ```
-Custom domain: `hvi.houstonlandguy.com` (same CF account).
+Custom domain available in the same CF account: `hvi.houstonlandguy.com`.
 
-## 3. Post-deploy smoke test
-1. Open the URL on a phone — ● LIVE dot top-right.
-2. "What's 505 Westcott Street worth?" → morph + card sheet.
-3. "Is it in the floodplain?" → blue tint.
-4. Mic test with speakers up — echo guard must hold.
-5. Delete the 505 Westcott test lead from Land Lead Hub when done.
+## Secrets — the ONE home for the rotation checklist
+`.env` (gitignored) holds all real values for local dev; prod uses
+`wrangler secret put` in `apps/worker`. **Every key below has passed through a
+chat session and must be rotated at the provider, then re-put — this is the
+standing "STILL OWED" action:**
+
+| Secret | Provider action | Prod command |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | rotate at console.anthropic.com | `wrangler secret put ANTHROPIC_API_KEY` |
+| `DEEPGRAM_API_KEY` | rotate at Deepgram | `wrangler secret put DEEPGRAM_API_KEY` |
+| `ELEVENLABS_API_KEY` | rotate at ElevenLabs | `wrangler secret put ELEVENLABS_API_KEY` |
+| `HVI_CRM_PASSWORD` | reset the Land Lead Hub bot user | `wrangler secret put HVI_CRM_PASSWORD` |
+| `CLOUDFLARE_API_TOKEN` | roll in CF dashboard | (used locally; not a worker secret) |
+| `SKIPTRACE_ENFORMION_AP_NAME` / `_AP_PASSWORD` | regenerate in EnformionGO (Apps → API → Keys) | `wrangler secret put SKIPTRACE_ENFORMION_AP_NAME` (+ `_AP_PASSWORD`) |
+| `VAPID_PRIVATE_KEY` | keep (not chat-exposed) | already set |
+
+Then set gateway auth: `HVI_SHARED_SECRET` = `openssl rand -hex 24` →
+`wrangler secret put HVI_SHARED_SECRET`, AND rebuild the web app with
+`NEXT_PUBLIC_GATEWAY_TOKEN=<same value>` so the client can connect, AND append
+the token to the digest-banner fetch (flagged in code). Setting the secret
+without the matching web token locks the team out.
+
+## Post-deploy smoke test
+1. Open jarvo.pages.dev on a phone — the ● LIVE dot shows top-right.
+2. "What's 505 Westcott Street worth?" → orb morph + card.
+3. "Is it in the floodplain?" → blue tint on SFHA.
+4. Mic test with speakers up — the echo guard must hold (physical test still owed).
+5. The 505 Westcott test lead accumulates test data — the team deletes it from
+   Land Lead Hub whenever noticed (it's marked safe to delete).

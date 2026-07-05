@@ -1,13 +1,25 @@
 # HVI — Project State & Roadmap
 
-> **Purpose of this file:** everything a fresh Claude Code session needs to continue
-> building HVI without re-discovering context. Read this top to bottom, then start
-> at the first unchecked item in [The Backlog](#the-backlog-prioritized).
-> Companion docs: `README.md` (run instructions), `../VISION.md`, `../PROJECT-BRIEF.md`,
-> `INTELLIGENCE-ROADMAP.md` (strategy), `NEXT-HORIZON.md` (contact engine at county
-> scale + full gap audit — START THE NEXT BUILD SESSION THERE), `TEAM-GUIDE.md`.
-> Last updated: 2026-07-05 (contact engine v1 shipped — see the
-> CONTACT ENGINE entry; next: NEXT-HORIZON §6 items 2–3).
+> **This file is the chronological execution log.** For architecture, the
+> add-a-tool recipe, and the hard invariants, read **CLAUDE.md** (auto-loaded).
+> For what to build next, read **NEXT-HORIZON.md** §6. This file's job is the
+> "what shipped and why" history — the entries below are newest-work-appended.
+
+## ⭐ CURRENT STATE (pinned — read this, not all 900 lines)
+
+**Live in prod:** gateway on Cloudflare Workers (`wss://hvi-gateway.houstonlandguy.workers.dev`),
+web at jarvo.pages.dev, Claude Opus brain, full CRM read/write.
+**What works:** HCAD lookups · orb morph + constellation · flood/comps/Ch.42/overlays/verdict ·
+tax-sale + LLC-graph + assemblage · nightly digest + push · monthly county Time Machine (R2) ·
+buy-box learning · voice documents · **Contact Engine (EnformionGO live): skip-trace with
+CRM-first + DNC compliance, call-outcome logging, entity→principal resolution** ·
+**propensity engine (county-scale hot list)** · **code-violations connect** · digest health canaries.
+**Pipeline enriched:** ~85 leads carry traced numbers (full sweep done 2026-07-05).
+**Next build (NEXT-HORIZON §6):** Aug 1 = exemption-drop + value-velocity analytics (snapshot #2
+lands); then permits/pre-foreclosure connects, history-across-hibernation.
+**Standing user actions:** rotate chat-exposed secrets + set `HVI_SHARED_SECRET` (see DEPLOY.md);
+teammates open jarvo.pages.dev/?u=<name> + enable alerts; decide the `need_numbers→new_numbers_added`
+auto-flip on trace success.
 
 ---
 

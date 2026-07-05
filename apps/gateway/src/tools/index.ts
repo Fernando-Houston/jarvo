@@ -1527,7 +1527,12 @@ async function executeToolInner(
           mock_test_data: provider.mock,
           phones_found: 0,
           emails_found: 0,
-          note: `${provider.name} found nothing for this owner — no numbers, no emails. The letter (zero compliance risk) is the channel here. ${traced.note}`,
+          ...(traced.entityOwner
+            ? { entity_owner: true, next_move: "owner_graph resolves the person behind the entity's mailbox — trace that name" }
+            : {}),
+          note: traced.entityOwner
+            ? traced.note
+            : `${provider.name} found nothing for this owner — no numbers, no emails. The letter (zero compliance risk) is the channel here. ${traced.note}`,
         });
       }
       // Write-back guard: fabricated mock data never lands on a real lead.

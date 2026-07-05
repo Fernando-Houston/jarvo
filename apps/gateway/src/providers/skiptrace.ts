@@ -42,6 +42,9 @@ export type TraceResult = {
   emails: string[];
   /** Whether the provider actually screened numbers against DNC lists. */
   dncChecked: boolean;
+  /** Owner is an LLC/LP/corp — person search can't trace it; owner_graph
+   *  (the mailbox trail) is the move. No API request was spent. */
+  entityOwner?: boolean;
   /** Honesty line to carry into speech/results. */
   note: string;
 };
@@ -52,10 +55,15 @@ export type SkipTraceProvider = {
   trace(ownerName: string, mailingAddress: string | null, siteAddress: string | null): Promise<TraceResult>;
 };
 
-/** "SMITH JOHN R" / "SMITH, JOHN" → {first, last}; entities stay whole. */
+/** "SMITH JOHN R" / "SMITH, JOHN" → {first, last}; entities stay whole.
+ *  HCAD often splits an entity across owner_name_1;owner_name_2 — check the
+ *  WHOLE string for entity words, not just the first segment ("KS HOUSTON
+ *  DEVELOPMENT; HOLDINGS CORPORATION" must read as an entity). */
 function splitOwnerName(owner: string): { first: string | null; last: string; entity: boolean } {
   const cleaned = owner.split(";")[0].trim();
-  if (/\b(LLC|L L C|INC|LTD|LP|L P|CORP|TRUST|ESTATE|PARTNERS|PROPERTIES|HOMES|CHURCH|CITY OF|COUNTY)\b/i.test(cleaned)) {
+  const ENTITY =
+    /\b(LLC|L L C|INC|LTD|LP|L P|CORP(ORATION)?|TRUST|ESTATE|PARTNERS(HIP)?|PROPERTIES|HOMES|CHURCH|CITY OF|COUNTY|HOUSING|DEVELOPMENT|HOLDINGS?|INVESTMENTS?|VENTURES?|GROUP|REALTY|BUILDERS|CAPITAL|MANAGEMENT|ENTERPRISES?|FUND|COMPANY|ASSOCIAT(ES|ION)|BANK|JOINT VENTURE|AUTHORITY|FOUNDATION)\b/i;
+  if (ENTITY.test(owner)) {
     return { first: null, last: cleaned, entity: true };
   }
   const noComma = cleaned.replace(",", " ").replace(/\s+/g, " ");
@@ -180,6 +188,21 @@ function enformionProvider(apName: string, apPassword: string): SkipTraceProvide
     mock: false,
     async trace(ownerName, mailingAddress, siteAddress) {
       const name = splitOwnerName(ownerName);
+      // Person search can't trace an LLC/LP/corp — don't spend the request.
+      // The play is owner_graph: resolve the human behind the mailbox, then
+      // trace THAT name.
+      if (name.entity) {
+        return {
+          provider: "enformion",
+          mock: false,
+          confidence: null,
+          phones: [],
+          emails: [],
+          dncChecked: false,
+          entityOwner: true,
+          note: `the owner of record is an entity (${name.last}) — a person search can't trace a company. Run owner_graph to find who operates from its mailbox, then trace that person. No lookup was charged.`,
+        };
+      }
       const mail = splitAddress(mailingAddress) ?? splitAddress(siteAddress);
       const res = await fetch("https://devapi.enformion.com/Contact/Enrich", {
         method: "POST",

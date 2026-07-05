@@ -682,7 +682,11 @@ export function createRulesBrain(): Brain {
           return;
         }
         if (!s.phones_found && !s.emails_found) {
-          say(`${s.provider} came up empty on this owner — no numbers, no emails. The letter is the play here.`);
+          say(
+            s.entity_owner
+              ? `The owner of record is a company, and a person trace can't touch a company — no lookup was charged. Say "who really owns this" and I'll chase the mailbox trail; when a human name surfaces, say trace it again.`
+              : `${s.provider} came up empty on this owner — no numbers, no emails. The letter is the play here.`
+          );
           return;
         }
         const conf = s.match_confidence != null ? `, match confidence about ${Math.round(s.match_confidence * 100)} percent` : "";

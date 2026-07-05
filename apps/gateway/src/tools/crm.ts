@@ -55,6 +55,27 @@ async function getClient(): Promise<SupabaseClient | null> {
   return client;
 }
 
+export type LeadPhone = {
+  number: string;
+  /** e.g. "bad" — the team marked it a wrong number; never dial these. */
+  status: string | null;
+  badReason: string | null;
+  /** Who the number traced to, when enrichment knows. */
+  contactName: string | null;
+  source: string | null;
+  confidence: number | null;
+};
+
+export type LeadContacts = {
+  phones: LeadPhone[];
+  primaryPhone: string | null;
+  /** Free-text contact notes from the team (sometimes holds emails). */
+  contactInfo: string | null;
+  source: string | null;
+  matchConfidence: number | null;
+  needsReview: boolean;
+};
+
 export type LeadSummary = {
   id: string;
   status: string | null;
@@ -62,6 +83,7 @@ export type LeadSummary = {
   propertyAddress: string | null;
   hasPhone: boolean;
   createdAt: string | null;
+  contacts: LeadContacts | null;
 };
 
 /** Is this parcel already a lead in the team's pipeline? Keyed by HCAD account. */
@@ -74,7 +96,9 @@ export async function checkLead(hcadAccount: string): Promise<
   if (!db) return { available: false };
   const { data, error } = await db
     .from("leads")
-    .select("id,status,owner_name,property_address,primary_phone,created_at")
+    .select(
+      "id,status,owner_name,property_address,primary_phone,preferred_phone,phone_1,phone_2,phone_3,phones,contact_info,contact_source,contact_match_confidence,contact_needs_review,created_at"
+    )
     .eq("hcad_account", hcadAccount)
     .maybeSingle();
   if (error) throw new Error(`CRM lead check failed: ${error.message}`);
@@ -87,9 +111,61 @@ export async function checkLead(hcadAccount: string): Promise<
       status: data.status,
       ownerName: data.owner_name,
       propertyAddress: data.property_address,
-      hasPhone: Boolean(data.primary_phone),
+      hasPhone: Boolean(data.primary_phone || data.phone_1),
       createdAt: data.created_at,
+      contacts: parseContacts(data),
     },
+  };
+}
+
+/** Normalize the CRM's contact columns (structured `phones` JSONB when the
+ *  enrichment pipeline ran, legacy phone_1..3 otherwise) into one shape. */
+function parseContacts(d: Record<string, unknown>): LeadContacts | null {
+  const phones: LeadPhone[] = [];
+  const seen = new Set<string>();
+  const push = (p: Partial<LeadPhone> & { number?: string | null }) => {
+    const num = (p.number ?? "").trim();
+    if (!num || seen.has(num)) return;
+    seen.add(num);
+    phones.push({
+      number: num,
+      status: p.status ?? null,
+      badReason: p.badReason ?? null,
+      contactName: p.contactName ?? null,
+      source: p.source ?? null,
+      confidence: p.confidence ?? null,
+    });
+  };
+  if (Array.isArray(d.phones)) {
+    for (const raw of d.phones as Array<Record<string, unknown>>) {
+      push({
+        number: raw.number as string,
+        status: (raw.status as string) ?? null,
+        badReason: (raw.bad_reason as string) ?? null,
+        contactName: (raw.contact_name as string) ?? null,
+        source: (raw.source as string) ?? null,
+        confidence: typeof raw.confidence === "number" ? raw.confidence : null,
+      });
+    }
+  }
+  for (const col of ["phone_1", "phone_2", "phone_3"] as const) {
+    if (typeof d[col] === "string") push({ number: d[col] as string, source: d.contact_source as string | null });
+  }
+  const primary = (d.preferred_phone ?? d.primary_phone) as string | null;
+  const contactInfo = (d.contact_info as string | null)?.trim() || null;
+  if (!phones.length && !contactInfo) return null;
+  // Good numbers first, primary at the very front; bad ones sink to the end.
+  phones.sort((a, b) => {
+    const rank = (p: LeadPhone) => (p.number === primary ? 0 : p.status === "bad" ? 2 : 1);
+    return rank(a) - rank(b);
+  });
+  return {
+    phones,
+    primaryPhone: primary ?? phones.find((p) => p.status !== "bad")?.number ?? null,
+    contactInfo,
+    source: (d.contact_source as string) ?? null,
+    matchConfidence: typeof d.contact_match_confidence === "number" ? d.contact_match_confidence : null,
+    needsReview: Boolean(d.contact_needs_review),
   };
 }
 

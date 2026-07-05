@@ -205,6 +205,28 @@ body {
 .row span { color: var(--dim); }
 .row b { font-weight: 600; text-align: right; }
 
+/* Reach the owner — the card's contact section (CRM enrichment). */
+.contact-block {
+  margin-top: 12px; padding-top: 10px;
+  border-top: 1px solid rgba(46, 218, 117, 0.16);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.contact-head {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.14em; color: var(--dim);
+}
+.contact-review {
+  padding: 1px 6px; border-radius: 999px; font-size: 9px; letter-spacing: 0.08em;
+  color: #ffd666; border: 1px solid rgba(255, 214, 102, 0.5); background: rgba(255, 214, 102, 0.08);
+}
+.contact-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 13.5px; }
+.contact-num { font-weight: 650; color: var(--green); text-decoration: none; font-variant-numeric: tabular-nums; }
+a.contact-num:hover { text-decoration: underline; }
+.contact-meta { font-size: 11px; color: var(--dim); text-align: right; }
+.contact-row.bad .contact-num { color: rgba(233, 246, 238, 0.35); text-decoration: line-through; font-weight: 500; }
+.contact-row.bad .contact-meta { color: rgba(255, 122, 110, 0.7); }
+.contact-notes { font-size: 12px; color: var(--dim); font-style: italic; }
+
 /* Transcript rail */
 .transcript-rail {
   position: absolute; left: 24px; top: 76px; bottom: 110px;

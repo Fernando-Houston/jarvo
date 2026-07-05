@@ -210,6 +210,40 @@ export default function HUD() {
               </div>
             )}
           </div>
+          {/* Reach the owner — CRM enrichment; tap a number to dial */}
+          {visual.contacts && (visual.contacts.phones.length > 0 || visual.contacts.contactInfo) && (
+            <div className="contact-block">
+              <div className="contact-head">
+                REACH THE OWNER
+                {visual.contacts.needsReview && <span className="contact-review">NEEDS REVIEW</span>}
+              </div>
+              {visual.contacts.phones.map((p) => {
+                const isPrimary = p.number === visual.contacts!.primaryPhone;
+                const isBad = p.status === "bad";
+                return (
+                  <div key={p.number} className={`contact-row ${isBad ? "bad" : ""}`}>
+                    {isBad ? (
+                      <span className="contact-num">{p.number}</span>
+                    ) : (
+                      <a className="contact-num" href={`tel:${p.number.replace(/[^\d+]/g, "")}`}>
+                        {p.number}
+                      </a>
+                    )}
+                    <span className="contact-meta">
+                      {isBad
+                        ? `bad${p.badReason ? ` · ${p.badReason.replace(/_/g, " ")}` : ""}`
+                        : [isPrimary ? "primary" : null, p.contactName, p.source]
+                            .filter(Boolean)
+                            .join(" · ") || "on file"}
+                    </span>
+                  </div>
+                );
+              })}
+              {visual.contacts.contactInfo && (
+                <div className="contact-notes">{visual.contacts.contactInfo}</div>
+              )}
+            </div>
+          )}
         </aside>
       )}
 

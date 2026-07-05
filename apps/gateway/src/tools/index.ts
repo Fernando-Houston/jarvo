@@ -64,6 +64,8 @@ export type SessionMemory = {
   /** The drafted document awaiting approval — nothing hits the CRM until
    *  the user files it (voice or panel button). */
   pendingDoc: { docType: DocKind; title: string; body: string; hcadAccount: string; address: string | null } | null;
+  /** Owner contacts learned from CRM lead checks (drives the card section). */
+  contactsByAccount: Map<string, NonNullable<ParcelVisual["contacts"]>>;
 };
 
 export type ToolContext = {
@@ -370,7 +372,7 @@ export const toolSchemas = [
   {
     name: "crm_lead_check",
     description:
-      "Check whether a property (by 13-digit HCAD account) is already a lead in the Houston Land Group CRM pipeline, and its status. Call after property_lookup when discussing a specific parcel.",
+      "Check whether a property (by 13-digit HCAD account) is already a lead in the Houston Land Group CRM pipeline: status PLUS the owner's contact enrichment (phone numbers with good/bad flags, who each traces to, contact notes) — the card shows them as tap-to-dial. Call after property_lookup when discussing a specific parcel, and whenever the user asks for the owner's number or contact info. Speak numbers only when asked; NEVER suggest dialing a number marked bad.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -489,6 +491,8 @@ export function emitDecorated(ctx: ToolContext, parcels: Parcel[], note?: string
   if (verdict) visual.verdict = verdict;
   const taxSale = ctx.memory.taxSaleByAccount.get(visual.hcadAccount);
   if (taxSale) visual.taxSale = taxSale;
+  const contacts = ctx.memory.contactsByAccount.get(visual.hcadAccount);
+  if (contacts) visual.contacts = contacts;
   const ch42 = ctx.memory.ch42ByAccount.get(visual.hcadAccount);
   if (ch42) {
     visual.ch42 = {
@@ -761,6 +765,26 @@ async function executeToolInner(
       const account = String(input.hcad_account ?? "");
       const parcel = await resolveParcel(ctx, account);
       if (!parcel) return JSON.stringify({ error: `No parcel found for HCAD ${account}` });
+      // Call sheets need the dial list — fetch contacts if this session
+      // hasn't already (letters deliberately don't include phone data).
+      let contacts = ctx.memory.contactsByAccount.get(parcel.hcadAccount) ?? null;
+      if (!contacts && docType !== "letter") {
+        try {
+          const lc = await checkLead(parcel.hcadAccount);
+          if ("found" in lc && lc.found && lc.lead.contacts) {
+            const c = lc.lead.contacts;
+            contacts = {
+              phones: c.phones,
+              primaryPhone: c.primaryPhone,
+              contactInfo: c.contactInfo,
+              needsReview: c.needsReview,
+            };
+            ctx.memory.contactsByAccount.set(parcel.hcadAccount, contacts);
+          }
+        } catch {
+          /* sheet still drafts without numbers */
+        }
+      }
       let body: string;
       try {
         body = await composeDocument(docType, {
@@ -770,6 +794,19 @@ async function executeToolInner(
           taxSale: ctx.memory.taxSaleByAccount.get(parcel.hcadAccount) ?? null,
           verdict: ctx.memory.verdictByAccount.get(parcel.hcadAccount) ?? null,
           compsMedian: ctx.memory.compsMedianByAccount.get(parcel.hcadAccount) ?? null,
+          contacts:
+            docType !== "letter" && contacts
+              ? {
+                  primary: contacts.primaryPhone,
+                  others: contacts.phones
+                    .filter((p) => p.status !== "bad" && p.number !== contacts!.primaryPhone)
+                    .map((p) => ({ number: p.number, belongsTo: p.contactName })),
+                  bad: contacts.phones
+                    .filter((p) => p.status === "bad")
+                    .map((p) => ({ number: p.number, reason: p.badReason })),
+                  notes: contacts.contactInfo,
+                }
+              : null,
           user: ctx.memory.user,
           guidance: input.guidance ? String(input.guidance) : null,
         });
@@ -1236,12 +1273,40 @@ async function executeToolInner(
         return JSON.stringify({ available: false, note: "CRM not connected in this environment; do not mention the CRM." });
       }
       if (result.found) {
-        // Badge the on-screen parcel: "IN PIPELINE · <status>".
+        // Badge the on-screen parcel: "IN PIPELINE · <status>", and hand the
+        // card the owner's contact info — the thing the team actually wants.
         ctx.memory.leadStatusByAccount.set(account, result.lead.status ?? "new");
+        if (result.lead.contacts) {
+          const c = result.lead.contacts;
+          ctx.memory.contactsByAccount.set(account, {
+            phones: c.phones,
+            primaryPhone: c.primaryPhone,
+            contactInfo: c.contactInfo,
+            needsReview: c.needsReview,
+          });
+        }
         const parcel = await resolveParcel(ctx, account);
         if (parcel) emitDecorated(ctx, [parcel]);
+        const c = result.lead.contacts;
+        return JSON.stringify({
+          ...result,
+          lead: {
+            ...result.lead,
+            contacts: c
+              ? {
+                  primary_phone: c.primaryPhone,
+                  good_phones: c.phones.filter((p) => p.status !== "bad").map((p) => ({ number: p.number, belongs_to: p.contactName, source: p.source, confidence: p.confidence })),
+                  bad_phones: c.phones.filter((p) => p.status === "bad").map((p) => ({ number: p.number, reason: p.badReason })),
+                  contact_notes: c.contactInfo,
+                  needs_review: c.needsReview,
+                  note: "from the team's CRM enrichment — NEVER dial numbers marked bad",
+                }
+              : null,
+          },
+        });
       } else {
         ctx.memory.leadStatusByAccount.delete(account);
+        ctx.memory.contactsByAccount.delete(account);
       }
       return JSON.stringify(result);
     }

@@ -22,6 +22,13 @@ export type DocFacts = {
   taxSale: { status: string; saleDate: string | null } | null;
   verdict: string | null;
   compsMedian: number | null;
+  /** CRM contact enrichment — the call sheet's dial list. */
+  contacts: {
+    primary: string | null;
+    others: Array<{ number: string; belongsTo: string | null }>;
+    bad: Array<{ number: string; reason: string | null }>;
+    notes: string | null;
+  } | null;
   user: string | null;
   /** Free-form guidance from the utterance ("mention the fence", price, tone). */
   guidance: string | null;
@@ -39,6 +46,7 @@ Rules:
 - 120-170 words, plain text, no markdown. Placeholders stay in square brackets.`,
 
   call_sheet: `You prepare one-page call sheets for a land acquisition caller. Plain text, no markdown symbols. Use these exact section headers on their own lines:
+DIAL:
 OWNER & HOLD:
 THE PROPERTY:
 THE NUMBER:
@@ -46,7 +54,7 @@ SIGNALS:
 TALKING POINTS:
 LIKELY OBJECTIONS:
 THE ASK:
-Every fact must come from the provided data — never invent. Keep each section to 1-3 tight lines. Where a signal is sensitive (tax suit), phrase the talking point so the CALLER knows it but would never say it ("motivated timeline likely — do not raise taxes"). Under 200 words.`,
+DIAL lists the phone numbers exactly as provided: the primary first, then other good numbers with who they belong to, then any marked bad on one line as "DO NOT DIAL: ..." with the reason. If no numbers are provided, DIAL says "No number on file — enrichment pending." Every fact must come from the provided data — never invent. Keep each section to 1-3 tight lines. Where a signal is sensitive (tax suit), phrase the talking point so the CALLER knows it but would never say it ("motivated timeline likely — do not raise taxes"). Under 220 words.`,
 
   offer_summary: `You write offer summaries for Houston Land Group. Plain text, no markdown. Use these exact section headers:
 PROPERTY:
@@ -86,6 +94,7 @@ export async function composeDocument(kind: DocKind, facts: DocFacts): Promise<s
           `SESSION KNOWLEDGE: flood=${facts.flood ?? "unknown"}; ch42_units=${facts.ch42Units ?? "n/a"}; ` +
           `tax_pipeline=${facts.taxSale ? `${facts.taxSale.status}${facts.taxSale.saleDate ? ` (auction ${facts.taxSale.saleDate})` : ""}` : "none found"}; ` +
           `verdict=${facts.verdict ?? "not run"}; comps_land_median_per_sqft=${facts.compsMedian ?? "n/a"}\n\n` +
+          `OWNER CONTACTS (CRM enrichment): ${facts.contacts ? JSON.stringify(facts.contacts) : "none on file"}\n\n` +
           `USER GUIDANCE: ${facts.guidance ?? "none"}`,
       },
     ],

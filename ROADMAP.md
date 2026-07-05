@@ -298,6 +298,29 @@ the owner") now works. LESSON LEARNED (twice today): worker deploys take
 connection after a wait. KNOWN COSMETIC (needs eyes-on session):
 constellation chips can clip at screen edges on narrow/mobile viewports.
 
+**✅ OWNER CONTACTS ON THE CARD (2026-07-05):** the team's top priority —
+reaching owners — was invisible in Jarvo (HCAD has no phones; the CRM's
+enrichment does: 447 leads with numbers, `phones` JSONB w/ per-number
+status/bad_reason/contact_name/source/confidence + legacy phone_1..3 +
+primary/preferred + contact_info free text; NO structured email columns
+exist in the CRM — contact_info sometimes holds them). `parseContacts()`
+(crm.ts) normalizes both shapes, dedupes, sorts primary→good→bad.
+`crm_lead_check` now returns contacts (model JSON splits good_phones /
+bad_phones with "NEVER dial numbers marked bad") + caches in
+`SessionMemory.contactsByAccount` → emitDecorated → `ParcelVisual.contacts`
+→ card section "REACH THE OWNER": tap-to-dial `tel:` links (drive-by!),
+per-number attribution (who it traces to · source · primary), bad numbers
+struck-through with reason, NEEDS REVIEW chip, contact-notes line. Voice:
+"what's the owner's number?" speaks the primary digit-by-digit + good/bad
+counts. Call sheets gained a DIAL section (primary first, DO NOT DIAL line
+for bad ones; letters deliberately get NO phone data). VERIFIED: tool layer
+live against a real enriched lead (3 whitepages numbers, redacted in logs);
+card UI + tel: hrefs + struck bad number verified in a real browser via the
+restore path — **HCAD county GIS went DOWN mid-verification (direct curl
+timeout), and Jarvo degraded honestly ("three timeouts in a row — the HCAD
+connection is hanging, not you")**; live-path retest when county returns is
+the same code path already proven pre-outage.
+
 ### P2-7 · Claude brain burn-in (WHEN CREDITS LAND) — first restart gateway, then:
 - Run multi-turn suite: follow-ups ("who owns it" after "what's it worth"),
   constellation comparison ("which of these is the better deal per square foot?"),

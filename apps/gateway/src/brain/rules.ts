@@ -531,6 +531,39 @@ export function createRulesBrain(): Brain {
         return;
       }
 
+      // ── Owner contacts ("what's the owner's number?") — from the CRM ──
+      if (/owner('s)? (number|phone|contact)|phone number|how do i reach|contact info/i.test(userText)) {
+        if (!mem.lastAccount) {
+          say("Ask me about a property first, then I can pull the owner's contact info.");
+          return;
+        }
+        events.onTool("crm_lead_check", "start");
+        let lc;
+        try {
+          lc = JSON.parse(await executeTool("crm_lead_check", { hcad_account: mem.lastAccount }, ctx));
+        } catch {
+          events.onTool("crm_lead_check", "end");
+          say("The CRM didn't answer just now — try again in a moment.");
+          return;
+        }
+        events.onTool("crm_lead_check", "end");
+        if (!lc.found) {
+          say("That one isn't a lead yet, so there's no contact record. Save it and the enrichment can go find a number.");
+          return;
+        }
+        const c = lc.lead?.contacts;
+        if (!c || (!c.primary_phone && !c.good_phones?.length)) {
+          say("It's in the pipeline, but no phone number's been found for the owner yet. The card shows what we do have.");
+          return;
+        }
+        const speakNum = (n: string) => n.replace(/\D+/g, "").split("").join(" ");
+        say(`Primary number is ${speakNum(c.primary_phone ?? c.good_phones[0].number)} — it's on the card, tap it to dial.`);
+        const extra = (c.good_phones ?? []).filter((p: { number: string }) => p.number !== c.primary_phone);
+        if (extra.length) say(`There ${extra.length === 1 ? "is one more good number" : `are ${extra.length} more good numbers`} on file.`);
+        if (c.bad_phones?.length) say(`${c.bad_phones.length} number${c.bad_phones.length === 1 ? " is" : "s are"} marked bad — don't redial those.`);
+        return;
+      }
+
       // ── Voice documents: draft to the preview panel, file on approval ──
       const docDraft = userText.match(/draft|write|prep(are)?/i)
         ? /letter|write to the owner/i.test(userText)

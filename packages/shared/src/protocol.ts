@@ -41,6 +41,21 @@ export type ParcelVisual = {
   verdict?: "GREEN" | "YELLOW" | "RED" | null;
   /** Delinquent-tax legal pipeline state, set after a tax-sale check/radar. */
   taxSale?: { status: string; saleDate: string | null } | null;
+  /** Owner contact info from the CRM's enrichment (leads only) — the card's
+   *  "reach the owner" section. Bad numbers ride along marked, never hidden. */
+  contacts?: {
+    phones: Array<{
+      number: string;
+      status: string | null;
+      badReason: string | null;
+      contactName: string | null;
+      source: string | null;
+      confidence: number | null;
+    }>;
+    primaryPhone: string | null;
+    contactInfo: string | null;
+    needsReview: boolean;
+  } | null;
   /** Chapter 42 feasibility, set after chapter42_feasibility runs: the orb
    *  assembles the building rectangles onto the lot. */
   ch42?: {

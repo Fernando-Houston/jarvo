@@ -41,6 +41,9 @@ const TOOL_LABELS: Record<string, string> = {
   tax_sale_radar: "sweeping for tax distress…",
   owner_graph: "tracing the mailbox trail…",
   assemblage_scan: "scanning the block for assemblages…",
+  deal_memo: "writing the deal memo…",
+  stale_leads: "auditing the pipeline…",
+  teardown_radar: "sweeping for teardowns…",
   city_overlays: "checking city overlays…",
   where_is_this: "reading the ground…",
 };

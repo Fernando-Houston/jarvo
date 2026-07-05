@@ -163,6 +163,43 @@ export async function listRecentNotes(limit = 80): Promise<
   });
 }
 
+/** Accountability: leads in the given statuses with no recorded activity in
+ *  `days` — the ones quietly going cold. */
+export async function listStaleLeads(
+  statuses: string[],
+  days: number,
+  limit = 10
+): Promise<
+  Array<{ hcadAccount: string | null; status: string | null; address: string | null; lastTouch: string | null; daysQuiet: number }>
+> {
+  const db = await getClient();
+  if (!db) return [];
+  const cutoff = new Date(Date.now() - days * 86400_000).toISOString();
+  const { data, error } = await db
+    .from("leads")
+    .select("hcad_account,status,property_address,latest_activity_at,updated_at,created_at")
+    .in("status", statuses)
+    .or(`latest_activity_at.is.null,latest_activity_at.lt.${cutoff}`)
+    .order("latest_activity_at", { ascending: true, nullsFirst: true })
+    .limit(limit * 2); // null-activity rows need the created_at fallback filter below
+  if (error) throw new Error(`CRM stale-lead scan failed: ${error.message}`);
+  const now = Date.now();
+  return (data ?? [])
+    .map((d) => {
+      const last = (d.latest_activity_at ?? d.updated_at ?? d.created_at) as string | null;
+      return {
+        hcadAccount: d.hcad_account,
+        status: d.status,
+        address: d.property_address,
+        lastTouch: last?.slice(0, 10) ?? null,
+        daysQuiet: last ? Math.floor((now - new Date(last).getTime()) / 86400_000) : 9999,
+      };
+    })
+    .filter((l) => l.daysQuiet >= days)
+    .sort((a, b) => b.daysQuiet - a.daysQuiet)
+    .slice(0, limit);
+}
+
 // ── Writes (RLS: team members can insert/update; deletes stay admin-only) ──
 
 /** Valid lead statuses (from the CRM's lead_status enum). */

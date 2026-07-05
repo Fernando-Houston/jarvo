@@ -226,6 +226,26 @@ anonymous users (no ?u=) can't filter their own echoes — account-level
 dedup makes it harmless, but names make it clean: one more reason for
 everyone to use jarvo.pages.dev/?u=<name>.
 
+**✅ DEAL MEMO + STALE LEADS + TEARDOWN RADAR (2026-07-05):** the post-table
+intelligence sweep. (1) `deal_memo(hcad_account)` — runs the verdict
+kill-chain (map paints), pulls the buy-box, and Opus writes a structured
+plain-text memo (THESIS / THE NUMBER / BASIS MATH / RISKS / EXIT VIEW /
+NEXT ACTIONS, ≤220 words, every figure from provided data) → auto-filed as
+a CRM note when the parcel is already a lead. First live memo (on the 505
+Westcott TEST lead) correctly identified a condo unit w/ fractional common
+land: "There is no lot here to scrape. Pass." (2) `stale_leads(days=14,
+statuses)` — `listStaleLeads` off `latest_activity_at` (fallback
+updated/created), longest-quiet first. Found 4 real 19-day-quiet leads.
+(3) `teardown_radar(hcad_account, radius_m=800)` — §2.4: building value
+<15% of appraisal + ≥3,000sf lot + non-institutional; absentee/held-years
+flags; top 5 pop onto the map ("teardown-grade · building 6% of value").
+Rules triggers + Claude schemas + activity labels for all three. VERIFIED
+local (memo/audit/radar on real data) + CLOUD E2E one-utterance chain:
+stale_leads → property_lookup → teardown_radar, spoken with judgment
+("3317 Simmons is the one I'd chase first"; "an estate on a small lot is
+its own kind of motivated"). CRM-write discipline held: memo tested ONLY
+against the 505 Westcott test lead.
+
 ### P2-7 · Claude brain burn-in (WHEN CREDITS LAND) — first restart gateway, then:
 - Run multi-turn suite: follow-ups ("who owns it" after "what's it worth"),
   constellation comparison ("which of these is the better deal per square foot?"),

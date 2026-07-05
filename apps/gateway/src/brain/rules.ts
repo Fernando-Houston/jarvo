@@ -531,6 +531,104 @@ export function createRulesBrain(): Brain {
         return;
       }
 
+      // ── Deal memo ("write me the deal memo") — the considered write-up ──
+      if (/deal memo|write (me )?(a |the )?memo|memo (it|this) (up)?/i.test(userText)) {
+        if (!mem.lastAccount) {
+          say("Ask me about a property first, then I'll write the memo on it.");
+          return;
+        }
+        say("Working the memo up — give me half a minute, the map builds while I do.");
+        events.onTool("deal_memo", "start");
+        let m;
+        try {
+          m = JSON.parse(await executeTool("deal_memo", { hcad_account: mem.lastAccount }, ctx));
+        } catch {
+          events.onTool("deal_memo", "end");
+          say("The memo engine hit a snag — try that again in a moment.");
+          return;
+        }
+        events.onTool("deal_memo", "end");
+        if (m.error) {
+          say(String(m.error).includes("API key") ? "Deal memos need the full brain, which isn't configured right now." : "The memo didn't come together — try again in a moment.");
+          return;
+        }
+        const thesis = String(m.memo).match(/THESIS:\s*([^\n]+)/)?.[1];
+        const number = String(m.memo).match(/THE NUMBER:\s*([^\n]+)/)?.[1];
+        say(`Memo's done${m.saved_to_crm ? " and filed on the lead" : ""}.`);
+        if (thesis) say(`Thesis: ${thesis}`);
+        if (number) say(`The number: ${number}`);
+        if (!m.saved_to_crm) say("It's not a lead yet, so the memo isn't filed anywhere — say save it first if you want it kept.");
+        return;
+      }
+
+      // ── Accountability ("which leads have gone cold?") ──
+      if (/stale|gone cold|going cold|haven't (been )?(touch|call|contact)|follow.?ups? (due|owed|outstanding)|not.*touched in/i.test(userText)) {
+        events.onTool("stale_leads", "start");
+        let s2;
+        try {
+          s2 = JSON.parse(await executeTool("stale_leads", {}, ctx));
+        } catch {
+          events.onTool("stale_leads", "end");
+          say("The pipeline didn't answer just now — try again in a moment.");
+          return;
+        }
+        events.onTool("stale_leads", "end");
+        if (s2.error) {
+          say("The pipeline didn't answer just now — try again in a moment.");
+        } else if (!s2.stale_count) {
+          say(`Nothing's going cold — every hot and follow-up lead has been touched inside ${s2.quiet_threshold_days} days. Tight ship.`);
+        } else {
+          say(`${s2.stale_count} lead${s2.stale_count === 1 ? " is" : "s are"} going cold — quiet for ${s2.quiet_threshold_days} days or more.`);
+          for (const l of s2.stale.slice(0, 3)) {
+            say(
+              `${(l.address ?? "One").split(",")[0]}, marked ${String(l.status).replace(/_/g, " ")}, ${
+                l.days_quiet != null ? `${l.days_quiet} days quiet` : "no activity ever recorded"
+              }.`
+            );
+          }
+        }
+        return;
+      }
+
+      // ── Teardown radar ("what's trading as dirt around here?") ──
+      if (/teardown|tear.?down|scrape|trading as (dirt|land)|land play/i.test(userText)) {
+        if (!mem.lastAccount) {
+          say("Ask me about a property first, then I'll sweep the block for teardowns.");
+          return;
+        }
+        events.onTool("teardown_radar", "start");
+        let t2;
+        try {
+          t2 = JSON.parse(await executeTool("teardown_radar", { hcad_account: mem.lastAccount }, ctx));
+        } catch {
+          events.onTool("teardown_radar", "end");
+          say("Harris County records didn't answer just now — run the teardown sweep again in a moment.");
+          return;
+        }
+        events.onTool("teardown_radar", "end");
+        if (t2.error) {
+          say("I couldn't pin down that parcel to sweep for teardowns.");
+        } else if (!t2.teardown_count) {
+          say(`Scanned ${t2.parcels_scanned} parcels within half a mile — nothing trading as dirt. The structures around here still carry their value.`);
+        } else {
+          say(
+            `Found ${t2.teardown_count} teardown-grade parcel${t2.teardown_count === 1 ? "" : "s"} within half a mile — buildings carrying under fifteen percent of the appraisal${
+              t2.absentee_among_them ? `, ${t2.absentee_among_them} with absentee owners` : ""
+            }. The closest are on your map.`
+          );
+          const top = t2.teardowns[0];
+          if (top?.address) {
+            say(
+              `Sharpest: ${String(top.address).split(",")[0]} — structure is ${top.building_share_pct} percent of a ${money(top.appraised_value)} appraisal${
+                top.held_years ? `, held ${top.held_years} years` : ""
+              }${top.absentee_owner ? ", absentee" : ""}.`
+            );
+          }
+          say("That's an appraisal-basis screen, not a condition report.");
+        }
+        return;
+      }
+
       // ── Tax delinquency ("behind on taxes?", "tax sales near here?") ──
       if (/tax (sale|auction|delinquen|suit)|delinquent|behind on .*tax|owes? .*tax|distress/i.test(userText)) {
         if (!mem.lastAccount) {

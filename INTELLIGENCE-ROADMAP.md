@@ -277,6 +277,14 @@ The shift: individual Q&A → shared institutional memory + division of labor.
 | 8 | ✅ Multiplayer constellation v1 (2026-07-04 — room DO, live broadcast + 24h backlog, ambient nodes) | The shared war room |
 | 9 | 🟡 Persona pass ✅ 2026-07-04; flood water render + barge-in open (need eyes/ears to verify) | Polish that sells |
 
+**Post-table sweep (2026-07-05, see ROADMAP.md):** ✅ §1.1#2 Deal Memo mode
+(`deal_memo`: kill-chain → structured memo filed as a CRM note — first live
+memo correctly called the 505 Westcott test lead a condo unit with
+fractional common land and said PASS); ✅ §3.5 accountability
+(`stale_leads`: no-activity-in-N-days audit off `latest_activity_at`);
+✅ §2.4 teardown index (`teardown_radar`: building <15% of appraisal,
+institutional owners excluded, absentee/hold flags, map pops).
+
 **Standing gates before wide rollout:** rotate chat-exposed secrets, enable
 HVI_SHARED_SECRET, delete the 505 Westcott test lead, phone-verify audio.
 

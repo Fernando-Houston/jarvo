@@ -13,7 +13,10 @@ import {
   lookupRecentTransfers,
   type Parcel,
 } from "./hcad";
-import { clusterByMail, findOpportunities, mailKey } from "./entity";
+import { clusterByMail, findOpportunities, institutionalOwner, mailKey } from "./entity";
+import { composeDealMemo } from "./memo";
+import { getBuyBox } from "../brain/buybox";
+import { listStaleLeads } from "./crm";
 import { floodCheckParcel, type FloodInfo } from "./fema";
 import { chapter42Feasibility, type Ch42Result, type StreetType } from "./chapter42";
 import { cityOverlaysAt } from "./cityOverlays";
@@ -172,6 +175,47 @@ export const toolSchemas = [
           description: `Statuses to include (default ["hot_lead","new"]). Valid: ${LEAD_STATUSES.join(", ")}`,
         },
       },
+    },
+  },
+  {
+    name: "deal_memo",
+    description:
+      "Write the considered deal memo for a parcel (by 13-digit HCAD account): runs the full kill-chain, then composes a structured memo (thesis, the deciding number, basis math, risks, exit view, next actions) informed by the team's buy-box. If the parcel is already a CRM lead the memo is FILED as a note automatically. Takes ~30 seconds. ONLY call when the user explicitly asks for a deal memo / write-up / to memo it up. When speaking afterwards, give the thesis and the number — don't read the whole memo aloud.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        hcad_account: { type: "string", description: "13-digit HCAD account of the parcel" },
+      },
+      required: ["hcad_account"],
+    },
+  },
+  {
+    name: "stale_leads",
+    description:
+      "Accountability check: pipeline leads with NO recorded activity in the last N days (default 14), longest-quiet first — the deals going cold. Call when the user asks which leads haven't been touched, what's gone stale/cold, or what follow-ups are owed.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        days: { type: "number", description: "Quiet threshold in days (default 14)" },
+        statuses: {
+          type: "array",
+          items: { type: "string" },
+          description: `Statuses to audit (default ["hot_lead","need_numbers","revisit"]). Valid: ${LEAD_STATUSES.join(", ")}`,
+        },
+      },
+    },
+  },
+  {
+    name: "teardown_radar",
+    description:
+      "The teardown index: parcels near a subject (by 13-digit HCAD account) where the building is worth under 15% of the total appraisal — land trading as a house, the raw material of infill plays. Flags absentee/long-hold owners on each. Call when the user asks about teardowns, scrapes, land plays, or what's trading as dirt nearby.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        hcad_account: { type: "string", description: "13-digit HCAD account of the subject parcel" },
+        radius_m: { type: "number", description: "Search radius in meters (default 800)" },
+      },
+      required: ["hcad_account"],
     },
   },
   {
@@ -659,6 +703,138 @@ async function executeToolInner(
           hcad_account: l.hcadAccount,
           created: l.createdAt?.slice(0, 10) ?? null,
         })),
+      });
+    }
+    case "deal_memo": {
+      const account = String(input.hcad_account ?? "");
+      const parcel = await resolveParcel(ctx, account);
+      if (!parcel) return JSON.stringify({ error: `No parcel found for HCAD ${account}` });
+      // The memo rides on the full kill-chain (which also paints the map).
+      let verdict: Record<string, unknown>;
+      try {
+        verdict = JSON.parse(await executeTool("verdict", { hcad_account: parcel.hcadAccount }, ctx));
+      } catch (err) {
+        return JSON.stringify({ error: `Kill-chain failed: ${err instanceof Error ? err.message : err}` });
+      }
+      let buybox: string | null = null;
+      try {
+        buybox = (await getBuyBox())?.paragraph ?? null;
+      } catch {
+        /* memo works without it */
+      }
+      let memo: string;
+      try {
+        memo = await composeDealMemo({
+          parcel: compact(parcel),
+          verdict,
+          buybox,
+          user: ctx.memory.user,
+        });
+      } catch (err) {
+        return JSON.stringify({ error: err instanceof Error ? err.message : String(err) });
+      }
+      let savedToCrm = false;
+      try {
+        const lead = await findLeadByAccount(parcel.hcadAccount);
+        if (lead) {
+          await addNote(lead.id, memo);
+          savedToCrm = true;
+        }
+      } catch {
+        /* memo still returned even if the note write fails */
+      }
+      return JSON.stringify({
+        memo,
+        saved_to_crm: savedToCrm,
+        note: savedToCrm
+          ? "memo filed as a note on the lead"
+          : "parcel isn't a lead yet — memo returned only; save it as a lead to file memos",
+      });
+    }
+    case "stale_leads": {
+      const days = typeof input.days === "number" && input.days > 0 ? Math.min(input.days, 365) : 14;
+      const statuses =
+        Array.isArray(input.statuses) && input.statuses.length
+          ? input.statuses.map(String).filter((s) => (LEAD_STATUSES as readonly string[]).includes(s))
+          : ["hot_lead", "need_numbers", "revisit"];
+      let stale;
+      try {
+        stale = await listStaleLeads(statuses, days, 10);
+      } catch (err) {
+        return JSON.stringify({ error: err instanceof Error ? err.message : String(err) });
+      }
+      return JSON.stringify({
+        quiet_threshold_days: days,
+        statuses_audited: statuses,
+        stale_count: stale.length,
+        stale: stale.map((l) => ({
+          address: l.address,
+          status: l.status,
+          hcad_account: l.hcadAccount,
+          last_touch: l.lastTouch,
+          days_quiet: l.daysQuiet === 9999 ? null : l.daysQuiet,
+        })),
+        note: "activity = the CRM's latest_activity_at (notes, status changes, contact attempts)",
+      });
+    }
+    case "teardown_radar": {
+      const account = String(input.hcad_account ?? "");
+      const subject = await resolveParcel(ctx, account);
+      if (!subject) return JSON.stringify({ error: `No parcel found for HCAD ${account}` });
+      const radius = typeof input.radius_m === "number" && input.radius_m > 0 ? Math.min(input.radius_m, 2000) : 800;
+      let neighbors: Parcel[];
+      try {
+        neighbors = await lookupNeighbors(subject, radius, 300);
+      } catch (err) {
+        return JSON.stringify({ error: err instanceof Error ? err.message : String(err) });
+      }
+      // Teardown-grade: a real structure carrying under 15% of the appraisal
+      // on a buildable lot, owned by someone who might actually sell.
+      const scored = neighbors
+        .filter(
+          (p) =>
+            p.appraisedValue != null &&
+            p.appraisedValue > 30_000 &&
+            p.buildingValue != null &&
+            p.buildingValue > 0 &&
+            p.buildingValue / p.appraisedValue < 0.15 &&
+            (p.lotSqft ?? 0) >= 3000 &&
+            !institutionalOwner(p)
+        )
+        .map((p) => ({
+          p,
+          ratio: p.buildingValue! / p.appraisedValue!,
+          heldYears: p.ownedSince ? Math.floor((Date.now() - new Date(p.ownedSince + "T00:00:00Z").getTime()) / 31557600000) : null,
+        }))
+        .sort((a, b) => a.ratio - b.ratio);
+      const shown = scored.slice(0, 5);
+      for (const t of shown) {
+        ctx.parcels.set(t.p.hcadAccount, t.p);
+        ctx.memory.knownParcels.set(t.p.hcadAccount, t.p);
+        emitDecorated(ctx, [t.p], `teardown-grade · building ${Math.round(t.ratio * 100)}% of value`);
+        await new Promise((r) => setTimeout(r, 600));
+      }
+      if (shown.length) emitDecorated(ctx, [subject]);
+      ctx.memory.lastAccount = subject.hcadAccount;
+      ctx.memory.lastMatches = 1;
+      const absentee = scored.filter((t) => t.p.absenteeOwner).length;
+      return JSON.stringify({
+        subject_hcad: subject.hcadAccount,
+        radius_m: radius,
+        parcels_scanned: neighbors.length,
+        teardown_count: scored.length,
+        absentee_among_them: absentee,
+        teardowns: scored.slice(0, 10).map((t) => ({
+          address: t.p.address,
+          hcad_account: t.p.hcadAccount,
+          appraised_value: t.p.appraisedValue,
+          building_share_pct: Math.round(t.ratio * 100),
+          lot_sqft: t.p.lotSqft,
+          absentee_owner: t.p.absenteeOwner,
+          held_years: t.heldYears,
+          owner: t.p.ownerName,
+        })),
+        note: "teardown = building under 15% of appraisal (appraisal-basis proxy, not a condition report); city overlays not checked per-parcel here",
       });
     }
     case "owner_graph": {

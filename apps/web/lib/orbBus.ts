@@ -28,8 +28,16 @@ export type OrbBus = {
   anchors: Anchor[];
   /** Screen-space label positions, written by the orb each frame. */
   screens: Map<string, { x: number; y: number; visible: boolean }>;
-  /** Free-flight camera state (drag to orbit, wheel to zoom). */
-  cam: { yaw: number; pitch: number; radius: number; user: boolean };
+  /** Free-flight camera state: one-finger drag orbits, two-finger drag pans
+   *  the target, pinch/wheel zooms toward the fingers/cursor. */
+  cam: {
+    yaw: number;
+    pitch: number;
+    radius: number;
+    user: boolean;
+    /** The point the camera orbits/looks at — pans move this. */
+    target: { x: number; y: number; z: number };
+  };
   /** Set true (by the HUD) to snap back to the cinematic auto-camera. */
   camResetRequested: boolean;
   /** 1 when the focus parcel sits in a FEMA flood zone (SFHA) — the morphed
@@ -52,7 +60,7 @@ export const orbBus: OrbBus = {
   fitRadius: 0,
   anchors: [],
   screens: new Map(),
-  cam: { yaw: 0, pitch: 0, radius: 4.2, user: false },
+  cam: { yaw: 0, pitch: 0, radius: 4.2, user: false, target: { x: 0, y: 0, z: 0 } },
   camResetRequested: false,
   flood: 0,
   gyroX: 0,

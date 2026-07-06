@@ -194,6 +194,7 @@ function makeGlowTexture(): THREE.Texture {
 /** Drag-to-orbit / wheel-to-zoom. Auto camera until the user takes over. */
 function CameraRig() {
   const gl = useThree((s) => s.gl);
+  const camera = useThree((s) => s.camera);
 
   useEffect(() => {
     const el = gl.domElement;
@@ -243,20 +244,73 @@ function CameraRig() {
         moved = 0;
       }
     };
+    // ── Map-style navigation helpers ─────────────────────────────────────
+    // World units per screen pixel at the orbit target's distance.
+    const worldPerPixel = () => {
+      const pc = camera as THREE.PerspectiveCamera;
+      return (2 * orbBus.cam.radius * Math.tan((pc.fov * Math.PI) / 360)) / el.clientHeight;
+    };
+    // Slide the orbit target along the camera's right/up axes (screen-space
+    // pan), clamped so nobody can fling the map into the void.
+    const panTarget = (dxPx: number, dyPx: number) => {
+      const wpp = worldPerPixel();
+      const right = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 0);
+      const up = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 1);
+      const t = orbBus.cam.target;
+      const limit = Math.max(orbBus.fitRadius * 1.6, 3);
+      t.x = Math.max(-limit, Math.min(limit, t.x + (-dxPx * right.x + dyPx * up.x) * wpp));
+      t.y = Math.max(-limit, Math.min(limit, t.y + (-dxPx * right.y + dyPx * up.y) * wpp));
+      t.z = Math.max(-limit, Math.min(limit, t.z + (-dxPx * right.z + dyPx * up.z) * wpp));
+    };
+    // Zoom toward a screen point (pinch centroid / cursor): scale the radius
+    // and pull the target toward the world point under the fingers, so the
+    // zoom dives where you aim instead of always at the center.
+    const zoomToward = (clientX: number, clientY: number, factor: number) => {
+      const oldR = orbBus.cam.radius;
+      const newR = Math.max(2.4, Math.min(15, oldR * factor));
+      const k = newR / oldR;
+      if (k !== 1) {
+        const rect = el.getBoundingClientRect();
+        const ndc = new THREE.Vector2(
+          ((clientX - rect.left) / rect.width) * 2 - 1,
+          -(((clientY - rect.top) / rect.height) * 2 - 1)
+        );
+        // Ray through the point, intersected with the view plane at the target.
+        const ray = new THREE.Vector3(ndc.x, ndc.y, 0.5).unproject(camera).sub(camera.position).normalize();
+        const fwd = new THREE.Vector3();
+        camera.getWorldDirection(fwd);
+        const t = orbBus.cam.target;
+        const toTarget = new THREE.Vector3(t.x, t.y, t.z).sub(camera.position);
+        const denom = ray.dot(fwd);
+        if (Math.abs(denom) > 1e-4) {
+          const s = toTarget.dot(fwd) / denom;
+          const P = camera.position.clone().add(ray.multiplyScalar(s));
+          const limit = Math.max(orbBus.fitRadius * 1.6, 3);
+          t.x = Math.max(-limit, Math.min(limit, t.x + (P.x - t.x) * (1 - k)));
+          t.y = Math.max(-limit, Math.min(limit, t.y + (P.y - t.y) * (1 - k)));
+          t.z = Math.max(-limit, Math.min(limit, t.z + (P.z - t.z) * (1 - k)));
+        }
+      }
+      orbBus.cam.radius = newR;
+    };
+
+    let prevCentroid: { x: number; y: number } | null = null;
     const onMove = (e: PointerEvent) => {
       const prev = pointers.get(e.pointerId);
       if (!prev) return;
       const cur = { x: e.clientX, y: e.clientY };
       if (pointers.size === 2) {
-        // Pinch: zoom by the change in distance between the two touches.
+        // Two fingers = the map gesture: drag to PAN, pinch to zoom toward
+        // the fingers. (One finger stays orbit.)
         const other = [...pointers.entries()].find(([id]) => id !== e.pointerId)?.[1];
         pointers.set(e.pointerId, cur);
         if (!other) return;
+        const centroid = { x: (cur.x + other.x) / 2, y: (cur.y + other.y) / 2 };
         const dist = Math.hypot(cur.x - other.x, cur.y - other.y);
-        if (prevPinch != null && dist > 0) {
-          takeControl();
-          orbBus.cam.radius = Math.max(2.4, Math.min(15, orbBus.cam.radius * (prevPinch / dist)));
-        }
+        takeControl();
+        if (prevCentroid) panTarget(centroid.x - prevCentroid.x, centroid.y - prevCentroid.y);
+        if (prevPinch != null && dist > 0) zoomToward(centroid.x, centroid.y, prevPinch / dist);
+        prevCentroid = centroid;
         prevPinch = dist;
         return;
       }
@@ -271,7 +325,10 @@ function CameraRig() {
     };
     const onUp = (e: PointerEvent) => {
       pointers.delete(e.pointerId);
-      if (pointers.size < 2) prevPinch = null;
+      if (pointers.size < 2) {
+        prevPinch = null;
+        prevCentroid = null;
+      }
       // A quick, still tap (not a drag) on the orb during speech = interrupt.
       if (downPos && moved < 8 && performance.now() - downAt < 400) {
         const st = useHvi.getState().orbState;
@@ -287,7 +344,8 @@ function CameraRig() {
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       takeControl();
-      orbBus.cam.radius = Math.max(2.4, Math.min(15, orbBus.cam.radius * (1 + e.deltaY * 0.0012)));
+      // Zoom toward the cursor, map-style, instead of always at the center.
+      zoomToward(e.clientX, e.clientY, 1 + e.deltaY * 0.0012);
     };
 
     el.addEventListener("pointerdown", onDown);
@@ -464,17 +522,22 @@ function Particles() {
       orbBus.cam.user = false;
       orbBus.cam.yaw = 0;
       orbBus.cam.pitch = 0;
+      orbBus.cam.target.x = 0;
+      orbBus.cam.target.y = 0;
+      orbBus.cam.target.z = 0;
     }
     if (orbBus.cam.user) {
-      // Free flight: orbit the constellation on drag, zoom on wheel.
-      const { yaw, pitch, radius } = orbBus.cam;
+      // Free flight: one-finger orbit around a MOVABLE target (two-finger
+      // pan / pinch-to-point shift it), zoom changes the orbit radius.
+      const { yaw, pitch, radius, target: t } = orbBus.cam;
       const cp = Math.cos(pitch);
-      const target = new THREE.Vector3(
-        radius * Math.sin(yaw) * cp,
-        radius * Math.sin(pitch),
-        radius * Math.cos(yaw) * cp
+      const goal = new THREE.Vector3(
+        t.x + radius * Math.sin(yaw) * cp,
+        t.y + radius * Math.sin(pitch),
+        t.z + radius * Math.cos(yaw) * cp
       );
-      cam.position.lerp(target, Math.min(1, delta * 6));
+      cam.position.lerp(goal, Math.min(1, delta * 6));
+      cam.lookAt(t.x, t.y, t.z);
     } else {
       // Cinematic auto camera: fit the constellation + pointer parallax.
       // The baseline cameraZ is desktop-tuned; ALSO fit the constellation's
@@ -498,8 +561,8 @@ function Particles() {
       const py = state.pointer.y * 0.22 - orbBus.gyroY * 0.4;
       cam.position.x += (px - cam.position.x) * 0.04;
       cam.position.y += (py - cam.position.y) * 0.04;
+      cam.lookAt(0, 0, 0);
     }
-    cam.lookAt(0, 0, 0);
 
     // Debug tap (read via DevTools: __hviOrbDebug) — cheap scalars only.
     (window as unknown as Record<string, unknown>).__hviOrbDebug = {

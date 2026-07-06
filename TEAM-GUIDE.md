@@ -57,6 +57,7 @@
 
 **Map**
 - **Tap any node to refocus** — instant and SILENT (it just pulls up the card; no talking). Want the spoken rundown? Tap **🔊 Tell me more** on the card, or just ask by voice.
+- **Moving around**: one finger spins the map · **two fingers slide it** · **pinch zooms right where your fingers are** (desktop: scroll zooms at the cursor). "recenter" snaps everything back home.
 - Nodes show their state at a glance: a green dot = in your pipeline, a ☎ = you have the owner's number, colored dots = verdict (green/yellow/red), amber glow = tax distress.
 - "clear map" wipes it · teammates' parcels join your map automatically with a "◈ name · address" toast
 
